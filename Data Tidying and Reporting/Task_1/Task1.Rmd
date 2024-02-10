@@ -1,0 +1,180 @@
+---
+title: "Task1"
+author: "Marcos Crespo"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '3'
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+    keep_tex: yes
+fontsize: 10pt
+editor_options: 
+  chunk_output_type: console
+link-citations: yes
+---
+
+**PARA PONER LA BIBLIOGRAFIA**
+**PONER EL INDICE EN SIDEBAR**
+**VER MAS ESTILOS DE HIGHLIGHT**
+bibliography: rep.bib
+biblio-style: apalike
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+load("qmnist_nist.RData")
+```
+```{r libraries, echo=FALSE, warning=FALSE}
+# dplyr
+if (!requireNamespace("dplyr", quietly = TRUE)) {
+  install.packages("dplyr")
+}
+library(dplyr)
+
+# glmnet
+if (!requireNamespace("glmnet", quietly = TRUE)) {
+  install.packages("glmnet")
+}
+library(glmnet)
+```
+
+# Introduction
+
+
+
+# Data insights
+The MNIST database is a widely used dataset in the field of machine learning and computer vision. It stands for Modified National Institute of Standards and Technology database. It consists of a large collection of handwritten digits. Each observation consists of the label (the intended writen number), the writter id and the $28*28$ greyscale grid values for the image itself. Possible representation of a $0$ could be:
+
+
+```{r visualize, echo=FALSE}
+show_digit <- function(x, col = gray(255:1 / 255), ...) {
+l <- sqrt(length(x))
+image(matrix(as.numeric(x), nrow = l)[, l:1], col = col, ...)
+}
+
+show_digit(train_nist[1,3])
+```
+
+This version of the dataset includes approximately 30,000 training images and 30,000 testing ones. These images are normalized and centered, making them a standard benchmark for evaluating the performance of some algorithms in tasks such as digit recognition and classification[^1].
+
+[^1]: For some application and references see **VER COMO CITAR** my final degree thesis (VER SI PONER TFG) **PONER URL** .
+
+In the class assignment, we are asked to implement a ridge logistic model for classifying the digits 4 and 9, so our next step is to filter only the data with labels 4 and 9. 
+```{r labels}
+# Filter our original data
+train <- train_nist %>%
+  filter(digit %in% c(4, 9))
+
+train$digit <- droplevels(train$digit)
+```
+After running this filtering we end up with 6011 observations of numbers 4 and 9
+
+```{r}
+summary(train[,c(1,2)])
+```
+
+# The model
+
+Ridge regression is a method of estimating the coefficients of multiple-regression models in scenarios where the independent variables are highly correlated.[1] It has been used in many fields including econometrics, chemistry, and engineering.*[WIKIPEDIA]*
+
+*This may be the current situation for the correlation thing (breve explicaion del modelo?)*
+
+The ridge model can be found in `glmnet` package as a subcase for $\alpha=0$. We will be trying to fit ridge a model, with a cross-validated-chosen λ penalty 
+
+```{r ridge2}
+# Lambda is a tuning parameter that can be chosen by cross-validation, using as
+# error the MSE (other possible error can be considered for generalized models
+# using the argument type.measure)
+
+# 10-fold cross-validation. Change the seed for a different result
+set.seed(12345)
+kcvRidge <- cv.glmnet(x = as.matrix(train[,3]), y = train[,1], alpha = 0, standardize = FALSE, family = "binomial", nfolds = 3)
+
+# The lambda that minimizes the CV error is
+kcvRidge$lambda.min
+## [1]26.46999
+
+# Equivalent to
+indMin <- which.min(kcvRidge$cvm)
+kcvRidge$lambda[indMin]
+## [1] 26.46999
+
+# The minimum CV error
+kcvRidge$cvm[indMin]
+## [1] 0.1163279
+min(kcvRidge$cvm)
+## [1] 0.1163279
+
+# Potential problem! Minimum occurs at one extreme of the lambda grid in which
+# CV is done. The grid was automatically selected, but can be manually inputted
+range(kcvRidge$lambda)
+## [1]     25.52821 255282.09651
+
+#not in the margins so we dont need to redefine the grid for lambda
+
+
+# But the CV curve is random, since it depends on the sample. Its variability
+# can be estimated by considering the CV curves of each fold. An alternative
+# approach to select lambda is to choose the largest within one standard
+# deviation of the minimum error, in order to favor simplicity of the model
+# around the optimal lambda value. This is known as the "one standard error rule"
+kcvRidge$lambda.1se
+## [1] 2964.928
+
+# Location of both optimal lambdas in the CV loss function in dashed vertical
+# lines, and lowest CV error and lowest CV error + one standard error
+plot(kcvRidge)
+abline(h = kcvRidge2$cvm[indMin] + c(0, kcvRidge$cvsd[indMin]))
+
+
+
+
+```
+```{r bet plot}
+plot(coef(kcvRidge, s = "lambda.1se")[-1])
+
+#Intercept exlcuded because of scale. Comment this
+```
+
+```{r labels2}
+# Filter our original data
+test <- test_nist %>%
+  filter(digit %in% c(4, 9))
+
+test$digit <- droplevels(test$digit)
+```
+
+```{r predict}
+plot(kcvRidge$glmnet.fit, label = TRUE, xvar = "lambda")
+abline(v = log(c(kcvRidge$lambda.min, kcvRidge$lambda.1se)))
+
+
+
+# The model associated to lambda.1se (or any other lambda not included in the
+# original path solution -- obtained by an interpolation) can be retrieved with
+predict(kcvRidge, type = "coefficients", s = kcvRidge$lambda.1se)
+
+
+# Predictions
+predictions <- predict(kcvRidge, type = "response", s = "lambda.min",
+        newx = as.matrix(test$px))
+
+
+# Convert predicted probabilities to class labels (4 or 9)
+predicted_classes <- ifelse(predictions > 0.5, 9, 4)
+
+# Evaluate the predictions
+accuracy <- mean(predicted_classes == test$digit)
+
+# Print the accuracy
+cat("Accuracy on test data:", accuracy)
+
+```
+
+
+
+
+
