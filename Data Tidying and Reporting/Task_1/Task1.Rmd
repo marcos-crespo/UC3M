@@ -1,33 +1,29 @@
 ---
-title: "Task1"
+title: "Mnist logistic classification"
+subtitle: "Data Tidying and Reporting. UC3M"
 author: "Marcos Crespo"
-date: "`r Sys.Date()`"
 output:
-  html_document:
-    df_print: paged
-    toc: yes
-    toc_depth: '3'
   pdf_document:
-    number_sections: yes
-    toc: yes
+    number_sections: no
+    toc: no
     toc_depth: 3
     keep_tex: yes
-fontsize: 10pt
+    df_print: kable
+    highlight: tango
+fontsize: 10pt    
+geometry: margin=0.5in
 editor_options: 
   chunk_output_type: console
+bibliography: biblio.bib
+biblio-style: apalike
 link-citations: yes
 ---
 
-**PARA PONER LA BIBLIOGRAFIA**
-**PONER EL INDICE EN SIDEBAR**
-**VER MAS ESTILOS DE HIGHLIGHT**
-bibliography: rep.bib
-biblio-style: apalike
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
 load("qmnist_nist.RData")
 ```
-```{r libraries, echo=FALSE, warning=FALSE}
+```{r libraries, echo=FALSE}
 # dplyr
 if (!requireNamespace("dplyr", quietly = TRUE)) {
   install.packages("dplyr")
@@ -41,15 +37,16 @@ if (!requireNamespace("glmnet", quietly = TRUE)) {
 library(glmnet)
 ```
 
-# Introduction
+## Introduction
+
+This document is the submission for the Task 1 in *Data Tidying and Reporting* course for *MSc in Statistics for Data Science at Carlos III University of Madrid*. In this task we are asked to make a ridge logistic model for classification while working with a given dataset. The goals of the task are several that will be conveniently indicated in the following sections. In addition, an appealing and concise report is mandatory, since it is one of the main goals of this course. Finally it is also required that the text is self-explanatory, meaning that any reader without being enrolled in the course may be able to read and understand the document.
+
+## Data insights
+
+The MNIST database is a widely used dataset in the field of machine learning and computer vision. It stands for *Modified National Institute of Standards and Technology* database. It consists of a large collection of handwritten digits. Each observation consists of the label (the intended written number), the writer id and the $28*28$ grey scale grid values for the image itself. This version of the dataset includes approximately 30,000 training images and 30,000 testing ones. These images are normalized and centered, making them a standard benchmark for evaluating the performance of some algorithms in tasks such as digit recognition and classification[^1]. A possible representation of a $0$ could be:
 
 
-
-# Data insights
-The MNIST database is a widely used dataset in the field of machine learning and computer vision. It stands for Modified National Institute of Standards and Technology database. It consists of a large collection of handwritten digits. Each observation consists of the label (the intended writen number), the writter id and the $28*28$ greyscale grid values for the image itself. Possible representation of a $0$ could be:
-
-
-```{r visualize, echo=FALSE}
+```{r visualize, echo=FALSE, fig.align='center', fig.height=2.5, fig.width=2.5}
 show_digit <- function(x, col = gray(255:1 / 255), ...) {
 l <- sqrt(length(x))
 image(matrix(as.numeric(x), nrow = l)[, l:1], col = col, ...)
@@ -58,88 +55,58 @@ image(matrix(as.numeric(x), nrow = l)[, l:1], col = col, ...)
 show_digit(train_nist[1,3])
 ```
 
-This version of the dataset includes approximately 30,000 training images and 30,000 testing ones. These images are normalized and centered, making them a standard benchmark for evaluating the performance of some algorithms in tasks such as digit recognition and classification[^1].
+[^1]: For some application and references see [@enwiki:1199732782]. Also for another application in clustering classification see [my TFG](https://drive.google.com/file/d/10lz-Mb0Otr4FnVMBtQrqzTmlPGbF0smE/view?usp=sharing).
 
-[^1]: For some application and references see **VER COMO CITAR** my final degree thesis (VER SI PONER TFG) **PONER URL** .
-
-In the class assignment, we are asked to implement a ridge logistic model for classifying the digits 4 and 9, so our next step is to filter only the data with labels 4 and 9. 
+In the first task, we are asked to implement a ridge logistic model for classifying the digits 4 and 9, so our next step is to filter only the data with labels 4 and 9. [@dplyr]
 ```{r labels}
-# Filter our original data
 train <- train_nist %>%
   filter(digit %in% c(4, 9))
-
+# drop the spare levels
 train$digit <- droplevels(train$digit)
 ```
-After running this filtering we end up with 6011 observations of numbers 4 and 9
+## The model
 
-```{r}
-summary(train[,c(1,2)])
+[@Garcia-Portugues2023] Ridge regression is a method employed to estimate coefficients within multiple regression models when independent variables display high correlation. Its application spans various disciplines such as econometrics, chemistry, and engineering.
+
+The characteristics of the ridge regression are useful in the Mnist situation. If we look at the column 1 and 2 of the grey scale matrix, its s.d. is `r var(train$px[1], train$px[2])`. So the collinearity is NA. Probably, since they are top left pixels and the images are centered, a lot of white pixels ($0$'s) are expected. This may result in high collinearity even though the pixels wont affect each other. On the other hand, if a pixel is coloured, it makes sense that the nearby pixels are also coloured because of the drawing. 
+
+
+The ridge model can be found in `glmnet` [@glmnet] package as a subcase for $\alpha=0$. We will be trying to fit ridge a model, with a cross-validated-chosen $\lambda$ penalty. **Standardization of the data wont be necessary since all of the inputs are in the same (grey) scale.**
+
+This can be done with the following code[^2]:
+
+[^2]: This computation takes time so the specific value isn't computed in knit-time.
+
+```{r ridge, eval=FALSE}
+# 10-fold cross-validation. Keep the seed for reproducibility
+set.seed(12345)
+lambdaGrid <- 10^seq(log10(45193.6), log10(0.1),length.out = 150)
+
+kcvRidge <- cv.glmnet(x = as.matrix(train$px), y = train$digit, alpha = 0, standardize = FALSE, 
+                      family = "binomial", nfolds = 10, lambda = lambdaGrid)
 ```
 
-# The model
+The optimal $\lambda$ that the function gets is the minimum $\lambda_{min}=18.93$ or the lowest *1se* $\lambda_{1se}=83.64$. Note that this values are not in the limits of the grid 
+`r range(10^seq(log10(45193.6), log10(0.1),length.out = 150))`. 
+We proceed with the $\lambda_{1se}$ and fit a model. 
 
-Ridge regression is a method of estimating the coefficients of multiple-regression models in scenarios where the independent variables are highly correlated.[1] It has been used in many fields including econometrics, chemistry, and engineering.*[WIKIPEDIA]*
-
-*This may be the current situation for the correlation thing (breve explicaion del modelo?)*
-
-The ridge model can be found in `glmnet` package as a subcase for $\alpha=0$. We will be trying to fit ridge a model, with a cross-validated-chosen λ penalty 
 
 ```{r ridge2}
-# Lambda is a tuning parameter that can be chosen by cross-validation, using as
-# error the MSE (other possible error can be considered for generalized models
-# using the argument type.measure)
-
-# 10-fold cross-validation. Change the seed for a different result
-set.seed(12345)
-kcvRidge <- cv.glmnet(x = as.matrix(train[,3]), y = train[,1], alpha = 0, standardize = FALSE, family = "binomial", nfolds = 3)
-
-# The lambda that minimizes the CV error is
-kcvRidge$lambda.min
-## [1]26.46999
-
-# Equivalent to
-indMin <- which.min(kcvRidge$cvm)
-kcvRidge$lambda[indMin]
-## [1] 26.46999
-
-# The minimum CV error
-kcvRidge$cvm[indMin]
-## [1] 0.1163279
-min(kcvRidge$cvm)
-## [1] 0.1163279
-
-# Potential problem! Minimum occurs at one extreme of the lambda grid in which
-# CV is done. The grid was automatically selected, but can be manually inputted
-range(kcvRidge$lambda)
-## [1]     25.52821 255282.09651
-
-#not in the margins so we dont need to redefine the grid for lambda
-
-
-# But the CV curve is random, since it depends on the sample. Its variability
-# can be estimated by considering the CV curves of each fold. An alternative
-# approach to select lambda is to choose the largest within one standard
-# deviation of the minimum error, in order to favor simplicity of the model
-# around the optimal lambda value. This is known as the "one standard error rule"
-kcvRidge$lambda.1se
-## [1] 2964.928
-
-# Location of both optimal lambdas in the CV loss function in dashed vertical
-# lines, and lowest CV error and lowest CV error + one standard error
-plot(kcvRidge)
-abline(h = kcvRidge2$cvm[indMin] + c(0, kcvRidge$cvsd[indMin]))
-
-
-
+ridgeMod <- glmnet(x = as.matrix(train$px), y = train$digit, alpha = 0, 
+                   family = "binomial", standardize = FALSE ,lambda = 83.64)
 
 ```
-```{r bet plot}
-plot(coef(kcvRidge, s = "lambda.1se")[-1])
+We can now **plot the coefficients** in order to get some insights about them. We exclude the intercept because it is in a much different magnitude.
 
-#Intercept exlcuded because of scale. Comment this
+```{r plot, echo=FALSE, fig.height=3.5, fig.width=3.5, fig.align='center'}
+plot(coef(ridgeMod)[-1])
 ```
+It seems clear how the central pixels tend to have bigger coefficients than the first ones. This is because of the number being drawn in the centre of the grid.
 
-```{r labels2}
+
+## Predictions
+
+```{r labels2, echo=FALSE}
 # Filter our original data
 test <- test_nist %>%
   filter(digit %in% c(4, 9))
@@ -147,34 +114,109 @@ test <- test_nist %>%
 test$digit <- droplevels(test$digit)
 ```
 
+We can now use the test set (properly transformed and filtered) in order to make some predictions using the model and measure the performance of the model. We are using a logistic binomial model, so the prediction is a estimated probability of the event being a certain class. Since we want a binomial output for computing the accuracy of the prediction, a cut-off for the probability is needed. The selected cut-off will be the naive $0.5$.
+
 ```{r predict}
-plot(kcvRidge$glmnet.fit, label = TRUE, xvar = "lambda")
-abline(v = log(c(kcvRidge$lambda.min, kcvRidge$lambda.1se)))
-
-
-
-# The model associated to lambda.1se (or any other lambda not included in the
-# original path solution -- obtained by an interpolation) can be retrieved with
-predict(kcvRidge, type = "coefficients", s = kcvRidge$lambda.1se)
-
-
 # Predictions
-predictions <- predict(kcvRidge, type = "response", s = "lambda.min",
+predictions <- predict(ridgeMod, type = "response",
         newx = as.matrix(test$px))
-
 
 # Convert predicted probabilities to class labels (4 or 9)
 predicted_classes <- ifelse(predictions > 0.5, 9, 4)
 
-# Evaluate the predictions
+# Evaluate the accuracy
 accuracy <- mean(predicted_classes == test$digit)
 
-# Print the accuracy
-cat("Accuracy on test data:", accuracy)
+```
+So the accuracy obtained in this model is `r accuracy*100`$\%$ for the $\lambda_{1se}$. 
+
+## Further work
+
+In addition, we are asked to tackle the 45 classification problems of one versus another digit in a similar way to the previous approach and then report the results.
+
+We have created the 45 necessary datasets and then using vectorization and different `apply()` functions we have computed the models and the global accuracy. No further explanation is given because of the optionality of the last task. The code we run is the following (3.5h runtime aprox.) and is left here for reproducibility issues.
+
+```{r further, eval=FALSE}
+set.seed(1234)
+lev <- 0:9
+datasets_train <- vector("list", length = 45)
+datasets_test <- vector("list", length = 45)
+cont <- 1
+
+#Generation of the datasets
+for (i in lev) {
+  for (j in lev) {
+    if (i < j) {
+      train_l <- train_nist %>%
+        filter(digit %in% c(i, j))
+      train_l$digit <- droplevels(train_l$digit)
+      
+      test_l <- test_nist %>%
+        filter(digit %in% c(i, j))
+      test_l$digit <- droplevels(test_l$digit)
+      
+      print(cont)
+      datasets_train[[cont]] <- train_l
+      datasets_test[[cont]] <- test_l
+      
+      cont <- cont + 1
+    }
+  }
+}
+
+# Vectorized generation of the models
+models <- lapply(datasets_train, function(data) {
+  x <- as.matrix(data[, 3])
+  y <- data[, 1]
+  cv.glmnet(
+    x,
+    y,
+    alpha = 0,
+    standardize = FALSE,
+    family = "binomial",
+    nfolds = 10
+  )
+})
+
+# Vectorized predictions
+predictions <- mapply(function(model, new_data) {
+  x_new <- as.matrix(new_data$px)
+  predict(model,
+          newx = x_new,
+          s = "lambda.1se",
+          type = "response")
+}, models, datasets_test)
+
+
+# Vectorized class predictions and accuracy calculation
+accuracy <- mapply(function(pred, mytest) {
+  y_test <- as.vector(model.matrix( ~ factor(mytest$digit))[, 2])
+  class_predictions <- ifelse(pred > 0.5, 1, 0)
+  mean(class_predictions == y_test)
+}, predictions, datasets_test)
 
 ```
 
+```{r table, eval=FALSE}
+# Generation of the table
+matrix_triang <- matrix(0, nrow = 10, ncol = 10)
+matrix_triang[upper.tri(matrix_triang)] <- accuracy
+rownames(matrix_triang) <- colnames(matrix_triang) <- 0:9
 
+print(matrix_triang)
+```
+|  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.9993876 | 0.9920558 | 0.9973571 | 0.9974579 | 0.9972532 | 0.9892221 | 0.9929215 | 0.9706697 | 0.9970850 |
+| 1 |  | 0.9936174 | 0.9894537 | 0.9931328 | 0.9982650 | 0.9982644 | 0.9812852 | 0.9904495 | 0.9761231 |
+| 2 |  |  | 0.9934662 | 0.9957039 | 0.9973641 | 0.9770561 | 0.9892869 | 0.9942775 | 0.9906977 |
+| 3 |  |  |  | 0.9976759 | 0.9992197 | 0.9889558 | 0.9972016 | 0.9944351 | 0.9996759 |
+| 4 |  |  |  |  | 0.9977204 | 0.9861549 | 0.9734711 | 0.9937725 | 0.9934913 |
+| 5 |  |  |  |  |  | 0.9897419 | 0.9978838 | 0.9935854 | 0.9979757 |
+| 6 |  |  |  |  |  |  | 0.9923990 | 0.9793515 | 0.9943219 |
+| 7 |  |  |  |  |  |  |  | 0.9881625 | 0.9778689 |
+| 8 |  |  |  |  |  |  |  |  | 0.9893617 |
 
+Note how the previous code takes the base factor as de smallest digit. This makes sense since the datasets are created that way and also `class_prediction` loop is working the same way.
 
-
+## References
