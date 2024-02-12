@@ -2,6 +2,7 @@
 title: "Mnist logistic classification"
 subtitle: "Data Tidying and Reporting. UC3M"
 author: "Marcos Crespo"
+date: "`r Sys.Date()`"
 output:
   pdf_document:
     number_sections: no
@@ -35,6 +36,11 @@ if (!requireNamespace("glmnet", quietly = TRUE)) {
   install.packages("glmnet")
 }
 library(glmnet)
+
+if (!requireNamespace("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+library(ggplot2)
 ```
 
 ## Introduction
@@ -43,17 +49,19 @@ This document is the submission for the Task 1 in *Data Tidying and Reporting* c
 
 ## Data insights
 
-The MNIST database is a widely used dataset in the field of machine learning and computer vision. It stands for *Modified National Institute of Standards and Technology* database. It consists of a large collection of handwritten digits. Each observation consists of the label (the intended written number), the writer id and the $28*28$ grey scale grid values for the image itself. This version of the dataset includes approximately 30,000 training images and 30,000 testing ones. These images are normalized and centered, making them a standard benchmark for evaluating the performance of some algorithms in tasks such as digit recognition and classification[^1]. A possible representation of a $0$ could be:
+The MNIST database is a widely used dataset in the field of machine learning and computer vision. It stands for *Modified National Institute of Standards and Technology* database. It consists of a large collection of handwritten digits. Each observation consists of the label (the intended written number), the writer id and the $28*28$ grey scale grid values for the image itself. This version of the dataset includes approximately 30,000 training images and 30,000 testing ones. These images are normalized and centered, making them a standard benchmark for evaluating the performance of some algorithms in tasks such as digit recognition and classification[^1]. A possible representation of a $0$ can be seen in Figure 1.
 
-
-```{r visualize, echo=FALSE, fig.align='center', fig.height=2.5, fig.width=2.5}
+```{r plot2, echo=FALSE, fig.width=3, fig.height=3, fig.align="center", fig.cap= "0 as represented in Mnist" }
 show_digit <- function(x, col = gray(255:1 / 255), ...) {
-l <- sqrt(length(x))
-image(matrix(as.numeric(x), nrow = l)[, l:1], col = col, ...)
+  l <- sqrt(length(x))
+  image(matrix(as.numeric(x), nrow = l)[, l:1],
+        col = col,
+        axes = FALSE)
 }
 
-show_digit(train_nist[1,3])
+show_digit(train_nist[1, 3])
 ```
+
 
 [^1]: For some application and references see [@enwiki:1199732782]. Also for another application in clustering classification see [my TFG](https://drive.google.com/file/d/10lz-Mb0Otr4FnVMBtQrqzTmlPGbF0smE/view?usp=sharing).
 
@@ -80,10 +88,18 @@ This can be done with the following code[^2]:
 ```{r ridge, eval=FALSE}
 # 10-fold cross-validation. Keep the seed for reproducibility
 set.seed(12345)
-lambdaGrid <- 10^seq(log10(45193.6), log10(0.1),length.out = 150)
+lambdaGrid <- 10 ^ seq(log10(45193.6), log10(0.1), length.out = 150)
 
-kcvRidge <- cv.glmnet(x = as.matrix(train$px), y = train$digit, alpha = 0, standardize = FALSE, 
-                      family = "binomial", nfolds = 10, lambda = lambdaGrid)
+kcvRidge <-
+  cv.glmnet(
+    x = as.matrix(train$px),
+    y = train$digit,
+    alpha = 0,
+    standardize = FALSE,
+    family = "binomial",
+    nfolds = 10,
+    lambda = lambdaGrid
+  )
 ```
 
 The optimal $\lambda$ that the function gets is the minimum $\lambda_{min}=18.93$ or the lowest *1se* $\lambda_{1se}=83.64$. Note that this values are not in the limits of the grid 
@@ -92,16 +108,33 @@ We proceed with the $\lambda_{1se}$ and fit a model.
 
 
 ```{r ridge2}
-ridgeMod <- glmnet(x = as.matrix(train$px), y = train$digit, alpha = 0, 
-                   family = "binomial", standardize = FALSE ,lambda = 83.64)
+ridgeMod <-
+  glmnet(
+    x = as.matrix(train$px),
+    y = train$digit,
+    alpha = 0,
+    family = "binomial",
+    standardize = FALSE ,
+    lambda = 83.64
+  )
 
 ```
 We can now **plot the coefficients** in order to get some insights about them. We exclude the intercept because it is in a much different magnitude.
 
-```{r plot, echo=FALSE, fig.height=3.5, fig.width=3.5, fig.align='center'}
-plot(coef(ridgeMod)[-1])
+```{r plot, echo=FALSE, fig.width=6, fig.height=3, fig.align="center",fig.cap="Coefficients plot"}
+
+coefficients <- coef(ridgeMod)[-1]  # No intercept
+coefficients_df <- data.frame(index = 1:length(coefficients),
+                              coefficient = coefficients)
+
+ggplot(coefficients_df, aes(x = index, y = coefficient)) +
+  geom_point(color = "orange", size = .5) +
+  labs(x = "Index", y = "Coefficient") +
+  ggtitle("Ridge Regression Coefficients") +
+  theme_light() # Set background to transparent
+
 ```
-It seems clear how the central pixels tend to have bigger coefficients than the first ones. This is because of the number being drawn in the centre of the grid.
+It seems clear in Figure 2. how the central pixels tend to have bigger coefficients than the first ones. This is because of the number being drawn in the centre of the grid.
 
 
 ## Predictions
@@ -119,14 +152,13 @@ We can now use the test set (properly transformed and filtered) in order to make
 ```{r predict}
 # Predictions
 predictions <- predict(ridgeMod, type = "response",
-        newx = as.matrix(test$px))
+                       newx = as.matrix(test$px))
 
 # Convert predicted probabilities to class labels (4 or 9)
 predicted_classes <- ifelse(predictions > 0.5, 9, 4)
 
 # Evaluate the accuracy
 accuracy <- mean(predicted_classes == test$digit)
-
 ```
 So the accuracy obtained in this model is `r accuracy*100`$\%$ for the $\lambda_{1se}$. 
 
@@ -134,7 +166,7 @@ So the accuracy obtained in this model is `r accuracy*100`$\%$ for the $\lambda_
 
 In addition, we are asked to tackle the 45 classification problems of one versus another digit in a similar way to the previous approach and then report the results.
 
-We have created the 45 necessary datasets and then using vectorization and different `apply()` functions we have computed the models and the global accuracy. No further explanation is given because of the optionality of the last task. The code we run is the following (3.5h runtime aprox.) and is left here for reproducibility issues.
+We have created the 45 necessary datasets and then using vectorization and different `apply()` functions we have computed the models and the global accuracy. No further explanation is given because of the optionality of the last task. The code we run is the following (3.5h runtime approx.) and is left here for reproducibility issues.
 
 ```{r further, eval=FALSE}
 set.seed(1234)
@@ -143,7 +175,7 @@ datasets_train <- vector("list", length = 45)
 datasets_test <- vector("list", length = 45)
 cont <- 1
 
-#Generation of the datasets
+# Generation of the datasets
 for (i in lev) {
   for (j in lev) {
     if (i < j) {
@@ -190,7 +222,7 @@ predictions <- mapply(function(model, new_data) {
 
 # Vectorized class predictions and accuracy calculation
 accuracy <- mapply(function(pred, mytest) {
-  y_test <- as.vector(model.matrix( ~ factor(mytest$digit))[, 2])
+  y_test <- as.vector(model.matrix(~ factor(mytest$digit))[, 2])
   class_predictions <- ifelse(pred > 0.5, 1, 0)
   mean(class_predictions == y_test)
 }, predictions, datasets_test)
@@ -217,6 +249,6 @@ print(matrix_triang)
 | 7 |  |  |  |  |  |  |  | 0.9881625 | 0.9778689 |
 | 8 |  |  |  |  |  |  |  |  | 0.9893617 |
 
-Note how the previous code takes the base factor as de smallest digit. This makes sense since the datasets are created that way and also `class_prediction` loop is working the same way.
+Note how the previous code takes the base factor as the smallest digit. This makes sense since the datasets are created that way and also `class_prediction` loop is working the same way.
 
 ## References
