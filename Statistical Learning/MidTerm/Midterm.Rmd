@@ -1,30 +1,108 @@
 ---
-title: "Midterm"
+title: "Statistical Learning Midterm project"
 author: "Marcos Crespo"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: 
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
+    toc: true
+    toc_depth: 1
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 
-## R Markdown
+## Introduction
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+This document is the first half of the Statistical Learning and Machine Learning evaluation assignments for the *Statistical Learning* course for the *MSc in Statistics for Data Science* at *UC3M*. Both parts will compose a full analysis of a selected data.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+This first document aims to make a data preprocessing, an EDA, explain the main predictors affecting the output and tray some classification using purely statistical learning tools. The second document objectives will be predict the output using some machine learning tools. The differences between statistical learning and machine learning were conveniently explained during de course.
 
-```{r cars}
-summary(cars)
+## The data
+
+The selected data is [*Salary structure survey*](https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177025&menu=resultados&secc=1254736195110&idp=1254735976596#!tabs-1254736195110). The data was publicly collected and published by the Spanish National Institute of Statistics [(INE)](https://www.ine.es/index.htm) anonimized microdata program. The data is collected every 4 years and the latest data available is 2018 survey.
+
+The database is made up of numerous entries from a survey in which I collect various information about the salary of the respondents. Higher education, working hours, place of work, flexible remuneration, sector, etc. The database is really complex and large but the INE provides two very important documents that help us to interpret it. The first is an .xlxs document which explains all the fields collected by the survey, their meaning and possible values. The second is a text document in which they explain some interesting metrics that can be calculated with the collected data. We will use both for our analysis.
+
+**(WRITE THE COUNT; THE N OF VARAIBLES AND WHEN WAS COLLECTED)**
+
+### Data preprocessing
+
+When you download the data from the source, you get a directory called R. In this directory there are instructions in how to make the given metadata as a R data frame. This code was quite outdated so we have updated it and let it in the Annex [**GET REFERENCE AND INSERT ANNEX**]. The code combines the .xlsx metadata file explaining all varaibles with the .txt file containing the info and lastly produces an R dataframe with all the data in the correct format.
+
+```{r fichero_salida}
+setwd("C:/Users/marco/Documents/Universidad/Master/GitHub/UC3M/Statistical Learning/MidTerm/datos_2018/R")
+source("MD_EES_2018.R")
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+Once we have our data frame we are going to add some of the important metrics the INE recommends.
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+First we notice that the data was collected in both monthly and annual basis. The monthly information belongs to October and the annual is the complete information for 2018. We will get rid of all the variables for monthly information and make our study for the full year. 
+
+```{r train_df}
+# Change the name of the dataframe
+df <- fichero_salida
+
+# Drop specified columns
+df <- df[, !names(df) %in% c("DRELABM", "SIESPM1", "DSIESPM1", "SIESPM2", "ORDENTRA", 
+                                      "SALBASE", "EXTRAORM", "PHEXTRA", "COMSAL", "COMSALTT",
+                                      "IRPFMES", "COTIZA", "BASE")]
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+In addition we will add a column representing the full annual salary combining the different types of retribution each individual gets. The formula the INE gives us using column names is:
+
+$SALANUAL=(365/DIASANO)*(RETRINOIN+RETRIIN+VESPNOIN+VESPIN)$
+
+Note that several metrics will be also created:
+
+- $DIASANO=DIASRELABA-DSIESPA2-DSIESPA4$
+- $VESPNOIN=(365/DIASANO)*VESPNOIN$
+- $VESPIN=(365/DIASANO)*VESPIN$
+- $DIASRELABA=DRELABAM*30.42+DRELABAD$[^1]
+
+[^1]:Adjust: IF DIASRELABA >365 THEN DIASRELABA =365)
+
+We will need to take the created variables out of the scope of the analysis because the response variable is a linear combination of them. *SALANUAL* will be our response variable, the one we will be trying to explain and predict using all the other information. 
+
+Finally, some other non informative variables will be dropped:
+
+- FACTOTAL: The elevation factor, an statistical metric.
+
+
+```{r SALANUAL}
+# Calculate the new columns
+
+df$DIASRELABA <- df$DRELABAM * 30.42 + df$DRELABAD
+# Adjust
+df$DIASRELABA[df$DIASRELABA > 365] <- 365
+
+
+df$DIASANO <- df$DIASRELABA - df$DSIESPA2 - df$DSIESPA4
+
+# Calculate VESPNOIN and VESPIN
+df$VESPNOIN <- (365 / df$DIASANO) * df$VESPNOIN
+df$VESPIN <- (365 / df$DIASANO) * df$VESPIN
+
+
+df$SALANUAL <- (365 / df$DIASANO) * (df$RETRINOIN + df$RETRIIN + df$VESPNOIN + df$VESPIN)
+
+# Drop specified columns
+df <- df[, !names(df) %in% c("DIASRELABA", "DIASANO", "VESPNOIN", "VESPIN", "RETRINOIN","RETRIIN" )]
+
+```
+
+
+**WE WILL BE NEEDING TO DO SOME CATEGORIES**
+
+
+## Exploratory Data Analysis
+
