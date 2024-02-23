@@ -17,6 +17,12 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(MASS)
+library(e1071)
 ```
 
 ## Introduction
@@ -29,13 +35,13 @@ This first document aims to make a data preprocessing, an EDA, explain the main 
 
 The selected data is [*Salary structure survey*](https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177025&menu=resultados&secc=1254736195110&idp=1254735976596#!tabs-1254736195110). The data was publicly collected and published by the Spanish National Institute of Statistics [(INE)](https://www.ine.es/index.htm) anonimized microdata program. The data is collected every 4 years and the latest data available is 2018 survey.
 
-The database is made up of numerous entries from a survey in which I collect various information about the salary of the respondents. Higher education, working hours, place of work, flexible remuneration, sector, etc. The database is really complex and large but the INE provides two very important documents that help us to interpret it. The first is an .xlxs document which explains all the fields collected by the survey, their meaning and possible values. The second is a text document in which they explain some interesting metrics that can be calculated with the collected data. We will use both for our analysis.
+The database is made up of numerous entries from a survey in which various information about the salary of the respondents was collected. Higher education, working hours, place of work, flexible remuneration or sector are some examples. The database is really complex and large but the INE provides two very important documents that help us to better understand it. The first is an .xlxs document which explains all the fields collected by the survey, their meaning and possible values. The second is a text document in which they explain some interesting metrics that can be calculated with the collected data. We will use both for our analysis.
 
-**(WRITE THE COUNT; THE N OF VARAIBLES AND WHEN WAS COLLECTED)**
+If all the specific fields and its description wants to be consulted, please check the .xlsx file in the folder you download [here](https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177025&menu=resultados&secc=1254736195110&idp=1254735976596#!tabs-1254736195110). The data base consists of 216726 entries of 56 variables.
 
 ### Data preprocessing
 
-When you download the data from the source, you get a directory called R. In this directory there are instructions in how to make the given metadata as a R data frame. This code was quite outdated so we have updated it and let it in the Annex [**GET REFERENCE AND INSERT ANNEX**]. The code combines the .xlsx metadata file explaining all varaibles with the .txt file containing the info and lastly produces an R dataframe with all the data in the correct format.
+When you download the data from the source, you get a directory called R. In this directory there are instructions in how to make the given metadata as a R data frame. This code was quite outdated so we have updated it and let it in the Annex [**GET REFERENCE AND INSERT ANNEX**]. The code combines the .xlsx metadata file explaining all variables with the .txt file containing the info and lastly produces an R data frame with all the data in the correct format.
 
 ```{r fichero_salida}
 setwd("C:/Users/marco/Documents/Universidad/Master/GitHub/UC3M/Statistical Learning/MidTerm/datos_2018/R")
@@ -76,7 +82,7 @@ We will need to take the created variables out of the scope of the analysis beca
 Finally, some other non informative variables will be dropped:
 
 - FACTOTAL: The elevation factor, an statistical metric.
-
+- ANOANTI and MESANTI are redundant. They stand for the time anyone has worked in years and in months respectively. MESANTI only is different from 0 if ANOANTI is 0 so we can make everything in months.
 
 ```{r SALANUAL}
 # Calculate the new columns
@@ -96,13 +102,188 @@ df$VESPIN <- (365 / df$DIASANO) * df$VESPIN
 df$SALANUAL <- (365 / df$DIASANO) * (df$RETRINOIN + df$RETRIIN + df$VESPNOIN + df$VESPIN)
 
 # Drop specified columns
-df <- df[, !names(df) %in% c("DIASRELABA", "DIASANO", "VESPNOIN", "VESPIN", "RETRINOIN","RETRIIN" )]
+df <- df[, !names(df) %in% c("DIASRELABA", "DIASANO", "VESPNOIN", "VESPIN", "RETRINOIN","RETRIIN" , "FACTOTAL", "IDENCCC")]
+
+# Multiply ANOANTI by 12 where ANOANTI is not equal to 0
+df <- df %>%
+  mutate(MESANTI = ifelse(ANOANTI != 0, ANOANTI * 12, MESANTI)) %>%
+  # Drop the MESANTI variable
+  dplyr::select(-ANOANTI)
+
 
 ```
 
 
-**WE WILL BE NEEDING TO DO SOME CATEGORIES**
+Finally, for most of our techniques, we will prefer not to predict some continuous variable as *SALANUAL* is, but rather a categorical one with several categories. 
+For the OECD[^2], the lower class in Spain is the one whose income is below 75% of the national median income; the middle class is between 75% and 200% of the median, and the upper class is the one above 200% of the median. According to the OECD estimate for 2019 (around that time), the median income is at $15193$ euros per year. Therefore, by applying the formulas, lower class people would be those who receive less than $11395$ euros per year; middle class people are between that figure and $30386$ euros per year, while the upper class includes all those who receive more than thirty thousand euros per year.
+
+[^2]: Information in this [article](https://www.larazon.es/economia/eres-clase-alta-media-baja-esta-categoria-que-perteneces-sueldo-segun-ocde_20240109659d9f0d872b820001237c5a.html)
+
+This way we can define three classes like:
+```{r classes}
+# Define the thresholds
+thresholds <- c(-Inf, 11395, 30386, Inf)
+
+# Create SALANUAL_CAT variable with three categories
+df <- df %>%
+  mutate(SALANUAL_CAT = cut(SALANUAL, breaks = thresholds, labels = c("Low Class", "Middle Class", "High Class")))
+```
+
+Now we are ready to create our train-test partition and begin the analysis:
+
+```{r train_test}
+# Set the seed for reproducibility
+set.seed(123)
+
+# Shuffle the dataset
+shuffled_df <- df[sample(nrow(df)), ]
+
+# Create an index for partitioning
+index_train <- 1:8000
+index_test <- 8001:10000
+
+# Create the training and testing sets
+df_train <- shuffled_df[index_train, ]
+df_test <- shuffled_df[index_test, ]
+
+rm(shuffled_df)
+```
 
 
-## Exploratory Data Analysis
+## Exploratory Data Analysis {.tabset}
+
+With all the preprocessing done our data have the following structure:
+
+### tables
+
+```{r table1, echo=FALSE}
+rmarkdown::paged_table(head(df_train))
+```
+We have 39 variables with the following structure:
+
+HACER UN EDA COMPLETO. AUN NO SE COMO HACERLO BIEN ASIQUE SIGO AVANZANDO. POngo algunas ideas de plots por aqui
+
+### plots
+
+```{r ideas}
+
+# Plot SALANUAL by SALANUAL_CAT
+ggplot(df, aes(x = SALANUAL_CAT, y = SALANUAL)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(x = "Salary Category", y = "Annual Salary") +
+  ggtitle("Annual Salary Distribution by Category") +
+  theme_minimal()
+
+ # only the two base categories
+
+# Plot SALANUAL by SALANUAL_CAT
+ggplot(subset(df, SALANUAL_CAT %in% c("Low Class", "Middle Class")), aes(x = SALANUAL_CAT, y = SALANUAL)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(x = "Salary Category", y = "Annual Salary") +
+  ggtitle("Annual Salary Distribution by Category (Low Class vs High Class)") +
+  theme_minimal()
+
+
+```
+
+SALANUAL is very skewd, we convert to log(x+1)
+
+```{r moreplots}
+
+# Convert SEXO to a factor with meaningful labels
+df$SEXO <- 
+
+# Create density plot
+ggplot(df_train) +
+  geom_density(alpha = 0.5, aes(x = log(SALANUAL+1),color = factor(df_train$SEXO, levels = c(1, 6), labels = c("Men", "Women")))) +
+  labs(x = "Annual Salary", y = "Density", color = "Sex", fill = "Sex") +
+  ggtitle("Density Plot of SALANUAL and Sex") +
+  theme_minimal()
+```
+```{r}
+# Create scatter plot
+ggplot(df_train, aes(x = MESANTI, y = SALANUAL, color = SEXO)) +
+  geom_line() +
+  labs(x = "MESANTI", y = "SALANUAL", color = "Sex") +
+  ggtitle("Scatter Plot of SALANUAL by MESANTI and Sex") +
+  theme_minimal()
+```
+
+```{r}
+
+# Create density plot
+ggplot(df_train, aes(color = CNACE, fill = CNACE)) +
+  geom_density(alpha = 0.1, aes(x = log(SALANUAL+1))) +
+  labs(x = "SALANUAL", y = "Density", color = "CNACE") +
+  ggtitle("Density Plot of SALANUAL by CNACE") +
+  theme_minimal()
+```
+
+## Statistical Learning Models {.tabset}
+
+EN CADA TAB EXPLICAR CADA MODELO Y SU JUSTIFICACION
+
+### Bayes Classifiers
+
+NO IDENCCC because its a code
+
+TRY LDA because nice in this situation and Naive Bayes because of high dimensionality
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", 
+                     repeats = 1,
+                     number = 5)
+
+lda<- caret::train(SALANUAL_CAT~.-SALANUAL, data = df_train, method="lda", trControl=ctrl)
+```
+```{r}
+nb<-caret::train(SALANUAL_CAT~.-SALANUAL, data = df_train, method="naive_bayes", trControl=ctrl)
+
+```
+
+### LOGISTIC REGRESSION
+```{r}
+lrFit <- train(SALANUAL_CAT~.-SALANUAL, 
+                method = "glmnet",
+                family = "multinomial",
+                data = df_train,
+                preProcess = c("center", "scale"),
+                metric = "Accuracy",
+                trControl = ctrl)
+```
+                tuneGrid = expand.grid(alpha = seq(0, 2, 0.1), lambda = seq(0, .1, 0.01))
+
+
+## Results
+
+COMENTAR LOS RESULTADOS
+```{r predict}
+lda.pred<-predict(lda,newdata = df_test)
+nb.pred <- predict(nb, newdata = df_test)
+lr.pred<- predict(lrFit, newdata = df_test)
+
+conf_matrix1 <- confusionMatrix(lda.pred, df_test$SALANUAL_CAT)
+conf_matrix2 <- confusionMatrix(nb.pred, df_test$SALANUAL_CAT)
+conf_matrix3 <- confusionMatrix(lr.pred, df_test$SALANUAL_CAT)
+
+# Extract accuracy metric
+conf_matrix1$overall['Accuracy']
+conf_matrix2$overall['Accuracy']
+conf_matrix3$overall['Accuracy']
+
+```
+
+PASOS A SEGUIR QUE QUEDAN: (dar forma)
+
+HACER MODELOS FULL CARET: VER SI PUEDES HACERLOS CON EL FULL TRAIN Y TEST NO CON SOLO 8K. VER TODAS LAS OPCIONES DE PARAMETER TUNING QUE HAY.
+
+VER EN LOS APUNTES DEL PROFE QUE COSAS DICE QUE HAY QUE HACER CON EL CARET
+
+VER EN LOS APUNTES DEL PROFE LAS RESTRICCIONES PARA CADA MODELO Y JUSTIFICARLAS. PONE QUE ALGUNOS MODELOS NECESITAN SCALING O VARIABLE SELECTION. HACER ESO
+
+VER SI NECESITO TUNING DE PARAMETROS O NO
+
+VER SI TENEMOS CLASS IMBALANCE
+
+EDA: HACER UN EDA CON ALGUNAS PLOTS INTERESANTES PARA SEPARAR GRUPOS (SIN EL SALARY OBVIO PERO CON COLORES POR GRUPO DE SALARIO). EXPLICAR CUALES SON REPRESENTATIVAS Y POR QUÉ NECESITAMOS ALGUN METODO MÁS COMPLEJO.
 
