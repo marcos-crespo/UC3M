@@ -23,19 +23,20 @@ library(caret)
 library(ggplot2)
 library(MASS)
 library(e1071)
+library(plotly)
 ```
 
 ## Introduction
 
 This document is the first half of the Statistical Learning and Machine Learning evaluation assignments for the *Statistical Learning* course for the *MSc in Statistics for Data Science* at *UC3M*. Both parts will compose a full analysis of a selected data.
 
-This first document aims to make a data preprocessing, an EDA, explain the main predictors affecting the output and tray some classification using purely statistical learning tools. The second document objectives will be predict the output using some machine learning tools. The differences between statistical learning and machine learning were conveniently explained during de course.
+This first document aims to make a data preprocessing, an EDA, explain the main predictors affecting the output and try some classification using purely statistical learning tools. The second document objectives will be predict the output using some machine learning tools. The differences between statistical learning and machine learning were conveniently explained during de course.
 
 ## The data
 
-The selected data is [*Salary structure survey*](https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177025&menu=resultados&secc=1254736195110&idp=1254735976596#!tabs-1254736195110). The data was publicly collected and published by the Spanish National Institute of Statistics [(INE)](https://www.ine.es/index.htm) anonimized microdata program. The data is collected every 4 years and the latest data available is 2018 survey.
+The selected data is [*Salary structure survey*](https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177025&menu=resultados&secc=1254736195110&idp=1254735976596#!tabs-1254736195110). The data was publicly collected and published by the Spanish National Institute of Statistics [(INE)](https://www.ine.es/index.htm) anonymized microdata program. The data is collected every 4 years and the latest data available is 2018 survey.
 
-The database is made up of numerous entries from a survey in which various information about the salary of the respondents was collected. Higher education, working hours, place of work, flexible remuneration or sector are some examples. The database is really complex and large but the INE provides two very important documents that help us to better understand it. The first is an .xlxs document which explains all the fields collected by the survey, their meaning and possible values. The second is a text document in which they explain some interesting metrics that can be calculated with the collected data. We will use both for our analysis.
+In this survey various information about the salary of the respondents was collected. Higher education, working hours, place of work, flexible remuneration or sector are some examples. The database is really complex and large but the INE provides two very important documents that help us to better understand it. The first is an .xlxs document which explains all the fields collected by the survey, their meaning and possible values. The second is a text document in which they explain some interesting metrics that can be calculated with the collected data. We will use both for our analysis.
 
 If all the specific fields and its description wants to be consulted, please check the .xlsx file in the folder you download [here](https://www.ine.es/dyngs/INEbase/es/operacion.htm?c=Estadistica_C&cid=1254736177025&menu=resultados&secc=1254736195110&idp=1254735976596#!tabs-1254736195110). The data base consists of 216726 entries of 56 variables.
 
@@ -83,6 +84,7 @@ Finally, some other non informative variables will be dropped:
 
 - FACTOTAL: The elevation factor, an statistical metric.
 - ANOANTI and MESANTI are redundant. They stand for the time anyone has worked in years and in months respectively. MESANTI only is different from 0 if ANOANTI is 0 so we can make everything in months.
+- IDENCCC corresponds to a unique quote index. It has to be ignored.
 
 ```{r SALANUAL}
 # Calculate the new columns
@@ -129,161 +131,177 @@ df <- df %>%
   mutate(SALANUAL_CAT = cut(SALANUAL, breaks = thresholds, labels = c("Low Class", "Middle Class", "High Class")))
 ```
 
+The resulting classes are:
+
+```{r}
+table(df$SALANUAL_CAT)
+```
+
+
+So they are pretty balanced. No correction for imbalances will be needed
+
 Now we are ready to create our train-test partition and begin the analysis:
 
 ```{r train_test}
 # Set the seed for reproducibility
 set.seed(123)
 
-# Shuffle the dataset
-shuffled_df <- df[sample(nrow(df)), ]
+# Create the training and testing sets with a 80/20 split
+train_df <- createDataPartition(df$SALANUAL_CAT, p = 0.8, list = FALSE, times = 1)
+df_train <- df[train_df, ]
+df_test <- df[-train_df, ]
 
-# Create an index for partitioning
-index_train <- 1:8000
-index_test <- 8001:10000
-
-# Create the training and testing sets
-df_train <- shuffled_df[index_train, ]
-df_test <- shuffled_df[index_test, ]
-
-rm(shuffled_df)
 ```
 
 
 ## Exploratory Data Analysis {.tabset}
 
-With all the preprocessing done our data have the following structure:
-
-### tables
+With all the preprocessing done we can now see some characteristics of our data.
 
 ```{r table1, echo=FALSE}
 rmarkdown::paged_table(head(df_train))
 ```
-We have 39 variables with the following structure:
+### Tables and plots
 
-HACER UN EDA COMPLETO. AUN NO SE COMO HACERLO BIEN ASIQUE SIGO AVANZANDO. POngo algunas ideas de plots por aqui
+In *CNACE* we get a code representing the *ECONOMIC ACTIVITY CODE*, it means, the economic sector in which each individual works. We have the following individuals:
+```{r cnace_table, echo=FALSE}
+table(df_train$CNACE)
+```
+The biggest categories are N0,Q0 and M0. If we consult the [CNAE 2009 table](https://www.cnae.com.es/lista-actividades.php), table that is copied in the informative .xlsx file that comes with the survey data we see this categories correspond to mostly qualified services jobs. This means jobs in administration, science, finance, consultancy, tourism, health...
 
-### plots
+Even though there are a lot of categories we could try and see if some of these categories tend to have more salary than others. 
 
-```{r ideas}
-
-# Plot SALANUAL by SALANUAL_CAT
-ggplot(df, aes(x = SALANUAL_CAT, y = SALANUAL)) +
-  geom_boxplot(fill = "skyblue", color = "black") +
-  labs(x = "Salary Category", y = "Annual Salary") +
-  ggtitle("Annual Salary Distribution by Category") +
+```{r cnace_plot, echo=FALSE}
+# Create density plot
+p<-ggplot(df_train, aes(color = CNACE, fill = CNACE)) +
+  geom_density(alpha = 0.6, aes(x = log(SALANUAL))) +
+  labs(x = "SALANUAL", y = "Density", color = "CNACE") +
+  ggtitle("Density Plot of SALANUAL by CNACE") +
   theme_minimal()
 
- # only the two base categories
-
-# Plot SALANUAL by SALANUAL_CAT
-ggplot(subset(df, SALANUAL_CAT %in% c("Low Class", "Middle Class")), aes(x = SALANUAL_CAT, y = SALANUAL)) +
-  geom_boxplot(fill = "skyblue", color = "black") +
-  labs(x = "Salary Category", y = "Annual Salary") +
-  ggtitle("Annual Salary Distribution by Category (Low Class vs High Class)") +
-  theme_minimal()
-
-
+ggplotly(p)
 ```
 
-SALANUAL is very skewd, we convert to log(x+1)
+Here we can see how maybe D0 is slightly right deviated meaning people working in the Energy industry tend to earn more.
 
-```{r moreplots}
+We can also see the distribution by sex:
 
-# Convert SEXO to a factor with meaningful labels
-df$SEXO <- 
+```{r plot_sex, echo=FALSE}
 
-# Create density plot
-ggplot(df_train) +
+g<-ggplot(df_train) +
   geom_density(alpha = 0.5, aes(x = log(SALANUAL+1),color = factor(df_train$SEXO, levels = c(1, 6), labels = c("Men", "Women")))) +
   labs(x = "Annual Salary", y = "Density", color = "Sex", fill = "Sex") +
   ggtitle("Density Plot of SALANUAL and Sex") +
   theme_minimal()
+
+ggplotly(g)
 ```
+
+Men tend to earn slightly more in mean. We could also check the number of men ad women in high-class income:
+
+```{r}
+high_class_table <- df_train %>%
+  filter(SALANUAL_CAT=="High Class") %>%
+  group_by(SEXO) %>%
+  summarise(high_class_count = n())
+
+print(high_class_table)
+
+```
+So even though the men only tend to earn a little bit more in mean than women,it is almost twice as likely to be high class if you are a man.
+
+
+Also we could try to see if the time spent in a job make you earn more in mean. And also check for this by sex
+
 ```{r}
 # Create scatter plot
-ggplot(df_train, aes(x = MESANTI, y = SALANUAL, color = SEXO)) +
+t<-ggplot(df_train, aes(x = MESANTI, y = SALANUAL, color = SEXO)) +
   geom_line() +
   labs(x = "MESANTI", y = "SALANUAL", color = "Sex") +
   ggtitle("Scatter Plot of SALANUAL by MESANTI and Sex") +
   theme_minimal()
+
+ggplotly(t)
 ```
+Here we can see how not only the number of months spent in a job doesn't make you earn more, but it seems that the highest earning jobs are not very old jobs.
 
-```{r}
+A similar addition to the sector analysis may be interesting but with education. This is:
 
+```{r cnace_plot2, echo=FALSE}
 # Create density plot
-ggplot(df_train, aes(color = CNACE, fill = CNACE)) +
-  geom_density(alpha = 0.1, aes(x = log(SALANUAL+1))) +
-  labs(x = "SALANUAL", y = "Density", color = "CNACE") +
-  ggtitle("Density Plot of SALANUAL by CNACE") +
+f<-ggplot(df_train, aes(color = ESTU, fill = ESTU)) +
+  geom_density(alpha = 0.6, aes(x = log(SALANUAL))) +
+  labs(x = "SALANUAL", y = "Density", color = "ESTU") +
+  ggtitle("Density Plot of SALANUAL by education") +
   theme_minimal()
+
+ggplotly(f)
 ```
+Here, the deviation is pretty clear. Category *1* stands form *Less than primary* and its clearly the more left deviated so smaller category. Category *7* stands for Bachelors and similar, and university doctors and they are the highest paid in average.
+
 
 ## Statistical Learning Models {.tabset}
 
-EN CADA TAB EXPLICAR CADA MODELO Y SU JUSTIFICACION
+We will be using library `caret` for our analysis due to its ease of use and its cross validation capabilities. Our approach will be making a 5-fold cross validation for all the models and then making an accuracy comparison for every model.
 
-### Bayes Classifiers
-
-NO IDENCCC because its a code
-
-TRY LDA because nice in this situation and Naive Bayes because of high dimensionality
-
-```{r}
-ctrl <- trainControl(method = "repeatedcv", 
+```{r cv, echo=FALSE}
+ctrl <- trainControl(method = "repeatedcv",
                      repeats = 1,
                      number = 5)
-
-lda<- caret::train(SALANUAL_CAT~.-SALANUAL, data = df_train, method="lda", trControl=ctrl)
 ```
-```{r}
-nb<-caret::train(SALANUAL_CAT~.-SALANUAL, data = df_train, method="naive_bayes", trControl=ctrl)
+
+### Bayesian classifiers
+
+A Bayesian classifier is a method used for classification tasks, based on Bayes' theorem. It calculates the probability of a hypothesis being true given the evidence. In simpler terms, it works by looking at the probability of a data point belonging to a certain class given its features. The classifier then selects the class with the highest probability as the predicted label for the input. It's a powerful tool because it can incorporate prior knowledge about the data and update its predictions as it receives new information.
+
+In the course, we have been presented 3 Bayesian classifiers techniques: QDA, LDA and Naive Bayes. Since QDA is not recommended for high dimensional mixed-type data sets, we will only perform LDA (recommended for multi-class classification) and Naive Bayes (recommended for large data sets) classifiers.
+
+
+```{r lda, echo=FALSE}
+lda<- caret::train(SALANUAL_CAT~.-SALANUAL, data = df_train, method="lda",preProcess = c("center", "scale"), trControl=ctrl)
+```
+```{r nb}
+nb<-caret::train(SALANUAL_CAT~.-SALANUAL, data = df_train, method="naive_bayes",preProcess = c("center", "scale"), trControl=ctrl)
 
 ```
 
 ### LOGISTIC REGRESSION
-```{r}
-lrFit <- train(SALANUAL_CAT~.-SALANUAL, 
+
+Multinomial logistic regression is a statistical method used to predict the probability of multiple categorical outcomes. Unlike binary logistic regression, which deals with only two categories, multinomial logistic regression handles three or more categories simultaneously. It estimates separate sets of coefficients for each outcome category relative to a reference category, describing the relationship between predictor variables and the likelihood of belonging to each category. The model's output provides probabilities for each outcome category, allowing us to classify observations into the most likely category based on the values of the predictor variables.
+
+```{r lr}
+lr <- train(SALANUAL_CAT~.-SALANUAL, 
                 method = "glmnet",
                 family = "multinomial",
                 data = df_train,
                 preProcess = c("center", "scale"),
-                metric = "Accuracy",
-                trControl = ctrl)
+                metric = "Accuracy", trControl=ctrl)
 ```
-                tuneGrid = expand.grid(alpha = seq(0, 2, 0.1), lambda = seq(0, .1, 0.01))
-
+```{r}
+lr_imp <- varImp(lr, scale = F)
+plot(lr_imp, scales = list(y = list(cex = .95)))
+```
 
 ## Results
 
-COMENTAR LOS RESULTADOS
+
 ```{r predict}
 lda.pred<-predict(lda,newdata = df_test)
 nb.pred <- predict(nb, newdata = df_test)
-lr.pred<- predict(lrFit, newdata = df_test)
+lr.pred<- predict(lr, newdata = df_test)
 
 conf_matrix1 <- confusionMatrix(lda.pred, df_test$SALANUAL_CAT)
 conf_matrix2 <- confusionMatrix(nb.pred, df_test$SALANUAL_CAT)
 conf_matrix3 <- confusionMatrix(lr.pred, df_test$SALANUAL_CAT)
 
 # Extract accuracy metric
-conf_matrix1$overall['Accuracy']
-conf_matrix2$overall['Accuracy']
-conf_matrix3$overall['Accuracy']
+conf_matrix1$overall['Sensitivity']
+conf_matrix2$overall['Sensitivity']
+conf_matrix3$overall['Sensitivity']
 
 ```
+COMENTAR pq usas sensitivity (True positive rate). no quiero beneficiar que ayude el clasificar bien un negative. quiero solo ver cuantos de cada grupo he clasificado bien.
 
-PASOS A SEGUIR QUE QUEDAN: (dar forma)
+## Annex
 
-HACER MODELOS FULL CARET: VER SI PUEDES HACERLOS CON EL FULL TRAIN Y TEST NO CON SOLO 8K. VER TODAS LAS OPCIONES DE PARAMETER TUNING QUE HAY.
-
-VER EN LOS APUNTES DEL PROFE QUE COSAS DICE QUE HAY QUE HACER CON EL CARET
-
-VER EN LOS APUNTES DEL PROFE LAS RESTRICCIONES PARA CADA MODELO Y JUSTIFICARLAS. PONE QUE ALGUNOS MODELOS NECESITAN SCALING O VARIABLE SELECTION. HACER ESO
-
-VER SI NECESITO TUNING DE PARAMETROS O NO
-
-VER SI TENEMOS CLASS IMBALANCE
-
-EDA: HACER UN EDA CON ALGUNAS PLOTS INTERESANTES PARA SEPARAR GRUPOS (SIN EL SALARY OBVIO PERO CON COLORES POR GRUPO DE SALARIO). EXPLICAR CUALES SON REPRESENTATIVAS Y POR QUÉ NECESITAMOS ALGUN METODO MÁS COMPLEJO.
 
