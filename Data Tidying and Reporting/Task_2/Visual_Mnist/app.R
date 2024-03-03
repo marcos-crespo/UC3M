@@ -18,11 +18,11 @@
 
 library(shiny)
 library(png)
-library(glmnet)
+library(randomForest)  # Necesario para el segundo método de clasificación
 
 # Functions for the app
 
-## Naive within-class average image classifier
+## Classifier
 # Create average images
 load(file = "qmnist_nist.RData")
 
@@ -31,38 +31,13 @@ avg_train_images <- sapply(0:9, function(d) {
 })
 
 # Classifier function
-naive_classifier <- function(vec_img) {
+classifier <- function(vec_img) {
   which.min(colMeans((avg_train_images - vec_img) ^ 2)) - 1
 }
 
-# Load training data
-load(file = "mnist_train.RData")
+# Random Forest model
+rf_model <- randomForest(x=train_nist$px, y=train_nist$digit, ntree = 100)
 
-# 10-fold cross-validation for Ridge Regression
-set.seed(12345)
-lambdaGrid <- 10^seq(log10(45193.6), log10(0.1), length.out = 150)
-kcvRidge <- cv.glmnet(
-  x = as.matrix(train_nist$px),
-  y = train_nist$digit,
-  alpha = 0,
-  standardize = FALSE,
-  family = "multinomial",
-  nfolds = 10,
-  lambda = lambdaGrid
-)
-
-# Best lambda
-best_lambda <- kcvRidge$lambda.min
-
-# Best Ridge Regression model
-ridge_model <- glmnet(
-  x = as.matrix(train_nist$px),
-  y = train_nist$digit,
-  alpha = 0,
-  standardize = FALSE,
-  family = "multinomial",
-  lambda = best_lambda
-)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
