@@ -1,3 +1,7 @@
+### Data Tidying and reporting
+### Task 2
+
+
 library(shiny)
 library(png)
 
@@ -28,7 +32,7 @@ chebysev_error <- function(vec_img) {
 
 # App UI
 ui <- fluidPage(
-  theme = shinythemes::shinytheme("readable"),
+  theme = shinythemes::shinytheme("flatly"),
   tags$head(tags$style(
     HTML("
       body {
@@ -36,7 +40,13 @@ ui <- fluidPage(
       }
     ")
   )),
-  titlePanel("Mnist Image Classification"),
+  titlePanel(
+    div(
+      h1("MNIST Image Classification"),
+      h3("Data Tidying and Reporting - Assigment 2. UC3M"),
+      h4("March 2024"),
+    )
+  ),
   sidebarLayout(
     sidebarPanel(
       fileInput(
@@ -123,14 +133,24 @@ ui <- fluidPage(
                  ))),
                  tabPanel(
                    "Results",
-                   h3("Results"),
+                   h3("Important information"),
                    # Placeholder for results, you can add your content here
                    verbatimTextOutput("uwu"),
                    HTML("Some insights from making some classification examples were observed during the making of this app:
                         <br>- Digit 9 is often missclassified using Mean Squared difference method. This is solved using Manhattan classifier almost in every situation. Chebysev also fails at identifying this digit.
                         <br>- Digit 0 was unsuccesfully classified using Chebysev method. Use one of the others instead.
                         <br>- Digit 5 was unsuccesfully classified using Manhattan method. Use one of the others instead.
-                        <br> - Note how the error shown with the digit as solution when you click on Classify button is the minimun distance between the uploaded image and the one of the 10 mean images. It can be used to compare the errors for diferent digits using the same distance but not as a comparison for distance well fit. Those are different scales"
+                        <br> - Note how the error shown with the digit as solution when you click on Classify button is the minimun distance between the uploaded image and the one of the 10 mean images. It can be used to compare the errors for diferent digits using the same distance but not as a comparison for distance well fit. Those are different scales.
+                        <br><br> If you want to create your own images for testing the app, you may go <a href='https://github.com/marcos-crespo/UC3M/tree/main/Data%20Tidying%20and%20Reporting/Task_1'> here</a>, download 'qmnist_nist.RData' file and create your images using the following code:
+                        <br><code>load('qmnist_nist.RData')
+                        <br>img_vec<-test_nist$px[which(test_nist$digit==i)[1],]/ 255 
+                        <br>img_mat<-matrix(as.numeric(img_vec),nrow=28,ncol=28, byrow=TRUE) 
+                        <br>#Save image 
+                        <br>writePNG(image=img_mat,target= paste0('test-',i,'.png'))
+                        </code>
+                        
+                        <br>Just change i for the digit you want
+                        "
                         )
                  )
                ))
@@ -138,8 +158,27 @@ ui <- fluidPage(
 
 # App server
 server <- function(input, output) {
+  
   observeEvent(input$image, {
     req(input$image)
+    # Check file size
+    if (file.info(input$image$datapath)$size > 5 * 1024 * 1024) {  # 5MB size limit
+      showModal(modalDialog(
+        title = "File Size Limit Exceeded",
+        "Please upload an image that is smaller than 5MB."
+      ))
+      return(NULL)
+    }
+    # Check file type
+    if (!grepl("\\.(png)$", input$image$name, ignore.case = TRUE)) {
+      showModal(modalDialog(
+        title = "Unsupported File Type",
+        "Please upload a PNG or JPEG image."
+      ))
+      return(NULL)
+    }
+    
+    # Render the selected image
     output$selected_image <- renderImage({
       list(
         src    = normalizePath(file.path(input$image$datapath)),
@@ -152,38 +191,36 @@ server <- function(input, output) {
   
   observeEvent(input$classify, {
     req(input$image)
-    img <-
-      255 * as.vector(t(png::readPNG(input$image$datapath)))  # Convert to vector
+    ## If you upload an unsoported image. Then an error is thrown but the app doesnt stop.
+    tryCatch({
+    img <- 255 * as.vector(t(png::readPNG(input$image$datapath)))  # Convert to vector
     
     # Perform classification using all three methods
-    mean_pred <- mean_error(img)
-    manhattan_pred <- manhattan_error(img)
-    chebysev_pred <- chebysev_error(img)
-    output$classification_result1 <- renderText({
-      paste("Mean Error:", mean_pred, "With error:", min(colMeans((
-        avg_train_images - img
-      ) ^ 2)))
+
+      mean_pred <- mean_error(img)
+      manhattan_pred <- manhattan_error(img)
+      chebysev_pred <- chebysev_error(img)
+      
+      # Display classification results
+      output$classification_result1 <- renderText({
+        paste("Mean Error:", mean_pred, "With error:", min(colMeans((avg_train_images - img) ^ 2)))
+      })
+      output$classification_result2 <- renderText({
+        paste("Manhattan Error:", manhattan_pred, "With error:", min(colSums(abs(avg_train_images - img))))
+      })
+      output$classification_result3 <- renderText({
+        paste("Chebyshev Error:", chebysev_pred, "With error:", min(apply(avg_train_images, 2, function(avg_img) {
+          max(abs(avg_img - img))
+        })))
+      })
+    }, error = function(e) {
+      showModal(modalDialog(
+        title = "Error",
+        "An unexpected error occurred. Please try again."
+      ))
     })
-    output$classification_result2 <- renderText({
-      paste("Manhattan Error:",
-            manhattan_pred,
-            "With error:",
-            min(colSums(abs(
-              avg_train_images - img
-            ))))
-    })
-    output$classification_result3 <- renderText({
-      paste("Chebyshev Error:",
-            chebysev_pred,
-            "With error:",
-            min(apply(avg_train_images, 2, function(avg_img) {
-              max(abs(avg_img - img))
-            })))
-    })
-    
   })
 }
-
 
 # Run the app
 shinyApp(ui = ui, server = server)
