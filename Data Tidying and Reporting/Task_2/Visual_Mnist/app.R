@@ -10,7 +10,7 @@ load(file = "qmnist_nist.RData")
 
 # Needed functions
 avg_train_images <- sapply(0:9, function(d) {
-  colMeans(train_nist$px[train_nist$digit == d, ])
+  colMeans(train_nist$px[train_nist$digit == d,])
 })
 
 # Function to calculate mean error
@@ -40,13 +40,11 @@ ui <- fluidPage(
       }
     ")
   )),
-  titlePanel(
-    div(
-      h1("MNIST Image Classification"),
-      h3("Data Tidying and Reporting - Assigment 2. UC3M"),
-      h4("March 2024"),
-    )
-  ),
+  titlePanel(div(
+    h1("MNIST Image Classification"),
+    h3("Data Tidying and Reporting - Assigment 2. UC3M"),
+    h4("March 2024"),
+  )),
   sidebarLayout(
     sidebarPanel(
       fileInput(
@@ -62,15 +60,16 @@ ui <- fluidPage(
     mainPanel(tabsetPanel(
       tabPanel("Introduction",
                fluidRow(
-                 column(width = 12,
-                   h3("Methodology"), 
+                 column(
+                   width = 12,
+                   h3("Methodology"),
                    HTML(
                      "<p>This Shiny web app is the second evaluation assignment for the Data Tidying and Reporting course in MSc in Statistics for Data Science at UC3M. The <a href='https://github.com/marcos-crespo/UC3M/tree/main/Data%20Tidying%20and%20Reporting/Task_1'> first task</a> consisted of tackling the pairwise classification problems between the digits (0 to 9) on <a href='https://en.wikipedia.org/wiki/MNIST_database'>MNIST</a> images using Ridge Regression.</p>
                     <p>Now, for this second task, the goal is to create a visually appealing app using <a href='https://shiny.rstudio.com/'>Shiny</a> that allows the user to upload a .png extracted from the MNIST set and classify the image in some simple ways.</p>
                     <p>The classification approach used in this task is much simpler than the one used in the first task. Now we are using the idea of within-class average image, this is the image created by taking the mean value for each pixel for each class. This creates an average image for each digit and then we can compute the distance to this image and the one we uploaded.</p>
                      <p> The method provided by the assgiment was a mean squared difference between the images and we have added a Manhattan and Chebysev distances based methods. These are:</p>"
                    )
-                        ),
+                 ),
                  column(
                    width = 12,
                    h3("Classification Methods"),
@@ -111,70 +110,71 @@ ui <- fluidPage(
                      "where:<br>- d: digit (0 to 9)<br>- x<sub>i</sub>: pixel intensity of the mean image at pixel i<br>- μ<sub>i</sub>: pixel intensity of given image at pixel i"
                    )
                  )
-               ),
+               ),),
+      tabPanel(
+        "Classification",
+        
+        imageOutput(outputId = "selected_image"),
+        fluidRow(column(
+          width = 12,
+          align = "center",
+          textOutput(outputId = "classification_result1"),
+          column(
+            width = 12,
+            align = "center",
+            textOutput(outputId = "classification_result2"),
+            column(
+              width = 12,
+              align = "center",
+              textOutput(outputId = "classification_result3")
+            )
+          )
+        ))
       ),
-      tabPanel("Classification",
- 
-                   imageOutput(outputId = "selected_image"),
-                 fluidRow(column(
-                   width = 12,
-                   align = "center",
-                   textOutput(outputId = "classification_result1"),
-                   column(
-                     width = 12,
-                     align = "center",
-                     textOutput(outputId = "classification_result2"),
-                     column(
-                       width = 12,
-                       align = "center",
-                       textOutput(outputId = "classification_result3")
-                     )
-                   )
-                 ))),
-                 tabPanel(
-                   "Results",
-                   h3("Important information"),
-                   # Placeholder for results, you can add your content here
-                   verbatimTextOutput("uwu"),
-                   HTML("Some insights from making some classification examples were observed during the making of this app:
+      tabPanel(
+        "Results",
+        h3("Important information"),
+        # Placeholder for results, you can add your content here
+        verbatimTextOutput("uwu"),
+        HTML(
+          "Some insights from making some classification examples were observed during the making of this app:
                         <br>- Digit 9 is often missclassified using Mean Squared difference method. This is solved using Manhattan classifier almost in every situation. Chebysev also fails at identifying this digit.
                         <br>- Digit 0 was unsuccesfully classified using Chebysev method. Use one of the others instead.
                         <br>- Digit 5 was unsuccesfully classified using Manhattan method. Use one of the others instead.
                         <br> - Note how the error shown with the digit as solution when you click on Classify button is the minimun distance between the uploaded image and the one of the 10 mean images. It can be used to compare the errors for diferent digits using the same distance but not as a comparison for distance well fit. Those are different scales.
                         <br><br> If you want to create your own images for testing the app, you may go <a href='https://github.com/marcos-crespo/UC3M/tree/main/Data%20Tidying%20and%20Reporting/Task_1'> here</a>, download 'qmnist_nist.RData' file and create your images using the following code:
                         <br><code>load('qmnist_nist.RData')
-                        <br>img_vec<-test_nist$px[which(test_nist$digit==i)[1],]/ 255 
-                        <br>img_mat<-matrix(as.numeric(img_vec),nrow=28,ncol=28, byrow=TRUE) 
-                        <br>#Save image 
+                        <br>img_vec<-test_nist$px[which(test_nist$digit==i)[1],]/ 255
+                        <br>img_mat<-matrix(as.numeric(img_vec),nrow=28,ncol=28, byrow=TRUE)
+                        <br>#Save image
                         <br>writePNG(image=img_mat,target= paste0('test-',i,'.png'))
                         </code>
-                        
+
                         <br>Just change i for the digit you want
                         "
-                        )
-                 )
-               ))
+        )
+      )
     ))
+  )
+)
 
 # App server
 server <- function(input, output) {
-  
   observeEvent(input$image, {
     req(input$image)
     # Check file size
-    if (file.info(input$image$datapath)$size > 5 * 1024 * 1024) {  # 5MB size limit
-      showModal(modalDialog(
-        title = "File Size Limit Exceeded",
-        "Please upload an image that is smaller than 5MB."
-      ))
+    if (file.info(input$image$datapath)$size > 1 * 1024 * 1024) {
+      # 1MB size limit
+      showModal(
+        modalDialog(title = "File Size Limit Exceeded",
+                    "Please upload an image that is smaller than 1MB. Only .png 28*28 pixels admitted")
+      )
       return(NULL)
     }
     # Check file type
     if (!grepl("\\.(png)$", input$image$name, ignore.case = TRUE)) {
-      showModal(modalDialog(
-        title = "Unsupported File Type",
-        "Please upload a PNG or JPEG image."
-      ))
+      showModal(modalDialog(title = "Unsupported File Type",
+                            "Please upload a PNG or JPEG image."))
       return(NULL)
     }
     
@@ -191,33 +191,43 @@ server <- function(input, output) {
   
   observeEvent(input$classify, {
     req(input$image)
-    ## If you upload an unsoported image. Then an error is thrown but the app doesnt stop.
+    ## If you upload an unsupported image. Then an error is thrown but the app
+    ## doesnt stop.
     tryCatch({
-    img <- 255 * as.vector(t(png::readPNG(input$image$datapath)))  # Convert to vector
-    
-    # Perform classification using all three methods
-
+      img <-
+        255 * as.vector(t(png::readPNG(input$image$datapath)))  # Convert to vector
+      
+      # Perform classification using all three methods
+      
       mean_pred <- mean_error(img)
       manhattan_pred <- manhattan_error(img)
       chebysev_pred <- chebysev_error(img)
       
       # Display classification results
       output$classification_result1 <- renderText({
-        paste("Mean Error:", mean_pred, "With error:", min(colMeans((avg_train_images - img) ^ 2)))
+        paste("Mean Error:", mean_pred, "With error:", min(colMeans((
+          avg_train_images - img
+        ) ^ 2)))
       })
       output$classification_result2 <- renderText({
-        paste("Manhattan Error:", manhattan_pred, "With error:", min(colSums(abs(avg_train_images - img))))
+        paste("Manhattan Error:",
+              manhattan_pred,
+              "With error:",
+              min(colSums(abs(
+                avg_train_images - img
+              ))))
       })
       output$classification_result3 <- renderText({
-        paste("Chebyshev Error:", chebysev_pred, "With error:", min(apply(avg_train_images, 2, function(avg_img) {
-          max(abs(avg_img - img))
-        })))
+        paste("Chebyshev Error:",
+              chebysev_pred,
+              "With error:",
+              min(apply(avg_train_images, 2, function(avg_img) {
+                max(abs(avg_img - img))
+              })))
       })
     }, error = function(e) {
-      showModal(modalDialog(
-        title = "Error",
-        "An unexpected error occurred. Please try again."
-      ))
+      showModal(modalDialog(title = "Error",
+                            "An unexpected error occurred. Please try again."))
     })
   })
 }
