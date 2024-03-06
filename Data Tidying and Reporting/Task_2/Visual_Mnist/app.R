@@ -1,168 +1,189 @@
-#
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
-
-###############################################################################
-###############################################################################
-
-#Notes:
-
-# - Make an action button for predicting?
-# - Maybe make a after-classification question for the digit it was supposed to be
-
-
 library(shiny)
 library(png)
-library(class)  # For KNN classification
 
-# Functions for the app
-
-## KNN Classifier
-# Create average images
+# Load pre-trained models and dataset
 load(file = "qmnist_nist.RData")
 
+# Needed functions
 avg_train_images <- sapply(0:9, function(d) {
   colMeans(train_nist$px[train_nist$digit == d, ])
 })
 
-# Shuffle the dataset
-set.seed(123)  # For reproducibility
-shuffled_indices <- sample(nrow(train_nist))
-train_nist_shuffled <- train_nist[shuffled_indices, ]
-
-# Split the dataset into train and test
-split_index <- nrow(train_nist_shuffled) %/% 2
-train_set <- train_nist_shuffled[1:split_index, ]
-test_set <- train_nist_shuffled[(split_index + 1):nrow(train_nist_shuffled), ]
-
-# KNN Classifier
-  if (!file.exists("KNN.RData")) {
-    # Train the KNN model and save it
-    knn_model <- knn(train = train_set$px, test = test_set$px, cl = train_set$digit, k = 10)
-    save(knn_model, file = "KNN.RData")
-  } else {
-    # Load the saved KNN model
-    load("KNN.RData")
-  }
-
-# Classifier function (existing)
-classifier_avg <- function(vec_img) {
-  paste(
-    "The predicted digit is: ",
-    which.min(colMeans((
-      avg_train_images - vec_img
-    ) ^ 2)) - 1,
-    "; the within within-class average image mean is: ",
-    min(colMeans((
-      avg_train_images - vec_img
-    ) ^ 2))
-  )
+# Function to calculate mean error
+mean_error <- function(vec_img) {
+  which.min(colMeans((avg_train_images - vec_img) ^ 2)) - 1
 }
 
-# Classifier function (KNN)
-classifier_knn <- function(vec_img) {
-  paste(
-    "The predicted digit is: ",
-    predict(knn_model, newdata=255 * vec_img)
-  )
+# Function to calculate Manhattan error
+manhattan_error <- function(vec_img) {
+  which.min(colSums(abs(avg_train_images - vec_img))) - 1
 }
 
-# Define UI for application that draws a histogram
+# Function to calculate Chebyshev error
+chebysev_error <- function(vec_img) {
+  which.min(apply(avg_train_images, 2, function(avg_img) {
+    max(abs(avg_img - vec_img))
+  })) - 1
+}
+
+# App UI
 ui <- fluidPage(
-  theme = shinythemes::shinytheme("lumen"),
-  tags$head(
-    tags$style(HTML("
+  theme = shinythemes::shinytheme("readable"),
+  tags$head(tags$style(
+    HTML("
       body {
-        font-family: 'Arial', sans-serif; /* Cambiar a la fuente deseada */
+        font-family: 'Arial', sans-serif;
       }
-    "))
-  ),
-  titlePanel("Visualization and classification of Mnist images"),
-  tags$div(
-    style = "margin-bottom: 20px;",
-    h5("This app performs classification on an Mnist image based on several methods.")
-  ),
+    ")
+  )),
+  titlePanel("Mnist Image Classification"),
   sidebarLayout(
     sidebarPanel(
       fileInput(
         inputId = "image",
-        label = "Upload your .png",
+        label = "Upload Image",
         multiple = FALSE,
         accept = ".png",
-        width = "28px",
+        width = "150px",
         buttonLabel = "Select file"
       ),
-      actionButton("classify_knn", "Classify (KNN)")
+      actionButton("classify", "Classify")
     ),
-    mainPanel(
-      tabsetPanel(
-        tabPanel("Methodology", 
-                 tags$div(
-                   HTML("This task is the second part of the assignments for Data Tidying and Reporting course for Msc in Statistics for Data Science in UC3M. The first part of the project tackled all the pairwise classification problems in the Mnist <a href='#'>dataset</a> with fairly good rates. The document is available <a href='#'>here</a>. <br><br>
-         In this second assignment the goal is to create a Shiny web app that the user can use in order to upload a Mnist image from the test data set and achieve a successful classification in an environment that is clear and visually appealing. <br><br>
-         The images that you upload should be: <br>
-         <ul>
-           <li>28*28 .png images extracted from the MNIST test data set. Data set available <a href='https://github.com/marcos-crespo/UC3M/tree/main/Data%20Tidying%20and%20Reporting/Task_2/Visual_Mnist'>here</a> and the code for creating the images in R is {code chunk to display code}.</li>
-         </ul>
-         The methods used are: <br>
-         <ul>
-           <li>Within image classification calculates the mean of each class and classifies the test image to the class with the smallest Euclidean distance to its mean image.</li>
-           <li>K-Nearest Neighbors (KNN) classification is a non-parametric method used for classification and regression. In KNN classification, the output class of an unseen data point is determined by the majority class among its k nearest neighbors. KNN is simple, easy to understand, and effective for small datasets. It is particularly useful when the decision boundary is highly irregular. </li>
-         </ul>
-         KNN Classification:<br>
-         Let \( X \) be the training set with inputs \( x_1, x_2, ..., x_n \), and \( Y \) be the corresponding labels. Given a new data point \( x \), KNN classifies it by finding the \( k \) nearest neighbors in \( X \) and assigns the majority class among these neighbors to \( x \). The distance metric used can be Euclidean distance, Manhattan distance, etc. <br>
-         Mathematically, for a new data point \( x \), let \( N(x) \) denote its \( k \) nearest neighbors. Then, the predicted class \( \hat{y} \) is given by: <br>
-         \[ \hat{y} = \text{argmax}_{y} \sum_{x_i \in N(x)} I(y_i = y) \] <br>
-         where \( I() \) is the indicator function that outputs 1 if the condition inside is true, and 0 otherwise."))
-      ),
-        tabPanel("Classification",
-                 fluidRow(
-                   column(width = 6, align = "center", imageOutput(outputId = "selected_image")),
-                   column(width = 6, 
-                          textOutput(outputId = "class_knn"),
-                          textOutput(outputId = "class_classifier")
+    mainPanel(tabsetPanel(
+      tabPanel("Introduction",
+               fluidRow(
+                 column(width = 12,
+                   h3("Methodology"), 
+                   HTML(
+                     "<p>This Shiny web app is the second evaluation assignment for the Data Tidying and Reporting course in MSc in Statistics for Data Science at UC3M. The <a href='https://github.com/marcos-crespo/UC3M/tree/main/Data%20Tidying%20and%20Reporting/Task_1'> first task</a> consisted of tackling the pairwise classification problems between the digits (0 to 9) on <a href='https://en.wikipedia.org/wiki/MNIST_database'>MNIST</a> images using Ridge Regression.</p>
+                    <p>Now, for this second task, the goal is to create a visually appealing app using <a href='https://shiny.rstudio.com/'>Shiny</a> that allows the user to upload a .png extracted from the MNIST set and classify the image in some simple ways.</p>
+                    <p>The classification approach used in this task is much simpler than the one used in the first task. Now we are using the idea of within-class average image, this is the image created by taking the mean value for each pixel for each class. This creates an average image for each digit and then we can compute the distance to this image and the one we uploaded.</p>
+                     <p> The method provided by the assgiment was a mean squared difference between the images and we have added a Manhattan and Chebysev distances based methods. These are:</p>"
+                   )
+                        ),
+                 column(
+                   width = 12,
+                   h3("Classification Methods"),
+                   h4("Mean Squared difference"),
+                   HTML(
+                     "Calculates the mean squared error between the input image and the average image of each digit. It then selects the digit with the minimum mean squared error as the predicted digit."
+                   ),
+                   HTML(
+                     "<p><strong>Mean Error = argmin<sub>d</sub> ∑<sub>i</sub>(x<sub>i</sub> - μ<sub>i</sub>)<sup>2</sup></strong></p>"
+                   ),
+                   HTML(
+                     "where:<br>- d: digit (0 to 9)<br>- x<sub>i</sub>: pixel intensity of the mean image at pixel i<br>- μ<sub>i</sub>: pixel intensity of given image at pixel i"
+                   )
+                 ),
+                 column(
+                   width = 12,
+                   h4("Manhattan Error"),
+                   HTML(
+                     "Calculates the sum of absolute differences between the input image and the average image of each digit. It then selects the digit with the minimum sum of absolute differences as the predicted digit."
+                   ),
+                   HTML(
+                     "<p><strong>Manhattan Error = argmin<sub>d</sub> ∑<sub>i</sub> |x<sub>i</sub> - μ<sub>i</sub>|</strong></p>"
+                   ),
+                   HTML(
+                     "where:<br>- d: digit (0 to 9)<br>- x<sub>i</sub>: pixel intensity of the mean image at pixel i<br>- μ<sub>i</sub>: pixel intensity of given image at pixel i"
+                   )
+                 ),
+                 column(
+                   width = 12,
+                   h4("Chebyshev Error"),
+                   HTML(
+                     "Calculates the maximum absolute difference between the input image and the average image of each digit. It then selects the digit with the minimum maximum absolute difference as the predicted digit."
+                   ),
+                   HTML(
+                     "<p><strong>Chebyshev Error = argmin<sub>d</sub> max<sub>i</sub>(|x<sub>i</sub> - μ<sub>i</sub>|)</strong></p>"
+                   ),
+                   HTML(
+                     "where:<br>- d: digit (0 to 9)<br>- x<sub>i</sub>: pixel intensity of the mean image at pixel i<br>- μ<sub>i</sub>: pixel intensity of given image at pixel i"
                    )
                  )
-        )
-      )
-    )
-  )
-)
+               ),
+      ),
+      tabPanel("Classification",
+ 
+                   imageOutput(outputId = "selected_image"),
+                 fluidRow(column(
+                   width = 12,
+                   align = "center",
+                   textOutput(outputId = "classification_result1"),
+                   column(
+                     width = 12,
+                     align = "center",
+                     textOutput(outputId = "classification_result2"),
+                     column(
+                       width = 12,
+                       align = "center",
+                       textOutput(outputId = "classification_result3")
+                     )
+                   )
+                 ))),
+                 tabPanel(
+                   "Results",
+                   h3("Results"),
+                   # Placeholder for results, you can add your content here
+                   verbatimTextOutput("uwu"),
+                   HTML("Some insights from making some classification examples were observed during the making of this app:
+                        <br>- Digit 9 is often missclassified using Mean Squared difference method. This is solved using Manhattan classifier almost in every situation. Chebysev also fails at identifying this digit.
+                        <br>- Digit 0 was unsuccesfully classified using Chebysev method. Use one of the others instead.
+                        <br>- Digit 5 was unsuccesfully classified using Manhattan method. Use one of the others instead.
+                        <br> - Note how the error shown with the digit as solution when you click on Classify button is the minimun distance between the uploaded image and the one of the 10 mean images. It can be used to compare the errors for diferent digits using the same distance but not as a comparison for distance well fit. Those are different scales"
+                        )
+                 )
+               ))
+    ))
 
-# Define server logic required to draw a histogram
+# App server
 server <- function(input, output) {
   observeEvent(input$image, {
     req(input$image)
     output$selected_image <- renderImage({
       list(
         src    = normalizePath(file.path(input$image$datapath)),
-        alt    = "Selected image",
-        width  = 150,
-        height = 150
+        alt    = "Selected Image",
+        width  = 200,
+        height = 200
       )
     }, deleteFile = FALSE)
   })
   
-  observeEvent(input$classify_knn, {
+  observeEvent(input$classify, {
     req(input$image)
-    img <- as.vector(t(png::readPNG(input$image$datapath)))  # Reshape to vector
-    output$class_knn <- renderPrint({
-      paste("KNN Classification:", classifier_knn(img))
+    img <-
+      255 * as.vector(t(png::readPNG(input$image$datapath)))  # Convert to vector
+    
+    # Perform classification using all three methods
+    mean_pred <- mean_error(img)
+    manhattan_pred <- manhattan_error(img)
+    chebysev_pred <- chebysev_error(img)
+    output$classification_result1 <- renderText({
+      paste("Mean Error:", mean_pred, "With error:", min(colMeans((
+        avg_train_images - img
+      ) ^ 2)))
     })
-  })
-  
-  output$class_classifier <- renderPrint({
-    if (!is.null(input$image)) {
-      img <- c(255 * t(png::readPNG(input$image$datapath)))
-      classifier_avg(img)
-    }
+    output$classification_result2 <- renderText({
+      paste("Manhattan Error:",
+            manhattan_pred,
+            "With error:",
+            min(colSums(abs(
+              avg_train_images - img
+            ))))
+    })
+    output$classification_result3 <- renderText({
+      paste("Chebyshev Error:",
+            chebysev_pred,
+            "With error:",
+            min(apply(avg_train_images, 2, function(avg_img) {
+              max(abs(avg_img - img))
+            })))
+    })
+    
   })
 }
 
-# Run the application
+
+# Run the app
 shinyApp(ui = ui, server = server)
