@@ -1,0 +1,549 @@
+---
+title: "Statistical Learning Final project"
+author: "Marcos Crespo"
+date: "March 2024"
+output:
+  html_document: 
+    css: my-theme.css
+    theme: journal
+    highlight: haddock
+    number_sections: no
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, message = FALSE)
+
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(plotly)
+```
+
+## Introduction
+
+This document is the second half of two evaluation assignments for the *Statistical Learning* course for the *MSc in Statistics for Data Science* at *UC3M*. Both parts compose a full analysis of selected data sets both covering statistical learning tools and machine learning tools.
+
+The first document aim was to make a data preprocessing, an EDA, explain the main predictors affecting the output and try some classification using some of the purely statistical learning tools. This second document objective is to make a data preprocessing, an EDA and to predict the output using some other machine learning tools. The differences between statistical learning and machine learning were conveniently explained during de course.
+
+## The data
+
+The selected data is [*Titanic survival*](https://www.kaggle.com/competitions/titanic/data). This dataset is very famous as one of the best-known kaggle competitions. This data was collected and distributed by Kaggle in order to its users to introduce themselves into the Machine Learning world, so this is why it seems perfect for this project.
+
+In this set various information about the passengers in the Titanic have been gathered up: sex, age, family size, fare, etc; but also cabin number or ticket class.As we already know, it seems that some type of passengers were more likely to survive the shipwreck than others. So the task is simple, we want to answer to the question: *“what sorts of people were more likely to survive?”*.
+
+It is important to notice that since only 2224 passengers and crew were on board in the moment of the crash, so the data we have is limited in terms of size.
+
+Lets load the data.
+
+```{r fichero_salida1}
+setwd("C:/Users/marco/Documents/Universidad/Master/GitHub/UC3M/Statistical Learning/Final/titanic")
+train <- read.csv('train.csv') 
+test <- read.csv('test.csv') 
+```
+When you download the data from the source, you get two files, a train set and a test set. They both have the same columns with the exception of the response *survival*, a binary survival variable ($0=\text{death}$ and $1=\text{live}$).
+We have a training data set of 891 instances of 12 variables and a test set of 418 entries of 11 variables.
+
+The variables are:
+
+- *survival* ->	Survival(0 = No, 1 = Yes).
+- *pclass*	-> Ticket class	(1 = 1st, 2 = 2nd, 3 = 3rd).
+- *sex* ->	Sex.
+- *Age*	-> Age in years.
+- *sibsp*	-> # of siblings / spouses aboard the Titanic.
+- *parch*	-> # of parents / children aboard the Titanic.
+- *ticket* ->	Ticket number.
+- *fare* ->	Passenger fare.
+- *cabin* ->	Cabin number.	
+- *embarked* ->	Port of Embarkation	(C = Cherbourg, Q = Queenstown, S = Southampton)
+
+### Data preprocessing
+
+Lets see the structure of our data:
+
+```{r}
+rmarkdown::paged_table(head(train))
+```
+And some quick information:
+
+```{r}
+# Summary statistics of numerical variables
+summary(train)
+```
+No quantities seem like outliers for any variable.
+
+If our goal is to predict the survived variable, *PassengerId* wont be useful since it's is just an order.
+
+We can also check for missing values. Usually, missing values are `NA` or if they are strings, they are sometimes an empty string or 1 character space. We can easily check this by:
+
+```{r}
+cat(names(which(colSums(is.na(train))>0)),colSums(is.na(train))[which(colSums(is.na(train))>0)]) 
+cat(names(which(colSums(train=='')>0)),colSums(train=='')[which(colSums(train=='')>0)])
+cat(names(which(colSums(train==' ')>0)),colSums(train==' ')[which(colSums(train==' ')>0)])
+```
+Here we can see how the *Age, Cabin and Embarked* variables have missing values. *Age* variable is suitable to imputation as well as *embarked* but *cabin* is too poor to be included in the study. So we will remove it.
+
+Name variable is pretty useless since it is a string unless we notice that the title is embedded in the name. We can extract the marital status from the name and get some further insights of the people. Maybe being married affect the will of survival of the passengers. This is mutating Mr, Mrs, Master, Miss into married or unmarried (as a binary variable).
+
+Last but not least, we can add the *SibSp and Parch* varaibles indicating the number of simblings and parents and children inboard into a general variable called *familySize*.
+
+We will make *Sex* column binary as well.
+
+Variable *Ticket* is no use for this project.
+
+We can make all this changes with the help of `dplyr`:
+
+```{r}
+train <- train %>%
+  # Drop ID column, cabin variable, and ticket variable
+  select(-Cabin, -Ticket) %>%
+  # Combine 'siblings' and 'parents' columns into 'family_size'
+  mutate(family_size = SibSp + Parch) %>%
+  select(-SibSp, -Parch) %>%
+  # Rename 'name' column to 'marital_status' based on title
+  mutate(marital_status = case_when(
+    grepl("Mr", Name) ~ 1,   # Married
+    grepl("Mrs", Name) ~ 1,  # Married
+    grepl("Master", Name) ~ 0,  # Unmarried
+    grepl("Miss", Name) ~ 0,    # Unmarried
+    TRUE ~ NA_integer_  # Other cases
+  )) %>%
+  select(-Name)  %>% # Drop the 'name' column
+  # Make 'sex' binary (0 for male, 1 for female)
+  mutate(Sex = ifelse(Sex == "male", 0, 1)) %>%
+  # Transform 'Survived' into a binary factor with different levels
+  mutate(Survived = factor(Survived, levels = c(0, 1), labels = c("No", "Yes"))) %>%
+  # Median imputation for 'age' variable
+  mutate(Age = ifelse(is.na(Age), median(Age, na.rm = TRUE), Age)) %>%
+  # Median imputation for 'embarked' variable
+  mutate(Embarked = ifelse(Embarked=='', median(Embarked, na.rm = TRUE), Embarked))
+```
+
+Lets make the same changes to test set:
+
+```{r}
+cat(names(which(colSums(is.na(test))>0)),colSums(is.na(test))[which(colSums(is.na(test))>0)]) 
+cat(names(which(colSums(test=='')>0)),colSums(test=='')[which(colSums(test=='')>0)])
+cat(names(which(colSums(test==' ')>0)),colSums(test==' ')[which(colSums(test==' ')>0)])
+```
+Same treatment as in train set to *Age and Cabin*. *Fare* value will be imputed as well.
+
+```{r}
+test <- test %>%
+  # Drop ID column, cabin variable, and ticket variable
+  select(-Cabin, -Ticket) %>%
+  # Combine 'siblings' and 'parents' columns into 'family_size'
+  mutate(family_size = SibSp + Parch) %>%
+  select(-SibSp, -Parch) %>%
+  # Rename 'name' column to 'marital_status' based on title
+  mutate(marital_status = case_when(
+    grepl("Mr", Name) ~ 1,   # Married
+    grepl("Mrs", Name) ~ 1,  # Married
+    grepl("Master", Name) ~ 0,  # Unmarried
+    grepl("Miss", Name) ~ 0,    # Unmarried
+    TRUE ~ 1  # Other cases
+  )) %>%
+  select(-Name)  %>% # Drop the 'name' column
+  # Make 'sex' binary (0 for male, 1 for female)
+  mutate(Sex = ifelse(Sex == "male", 0, 1)) %>%
+  # Median imputation for 'age' variable
+  mutate(Age = ifelse(is.na(Age), median(Age, na.rm = TRUE), Age)) %>%
+  # Median imputation for 'embarked' variable
+  mutate(Fare = ifelse(is.na(Fare), median(Fare, na.rm = TRUE), Fare))
+  
+```
+
+
+## Exploratory Data Analysis {.tabset}
+
+With all the preprocessing done we can now see some characteristics of our data.
+
+```{r table1, echo=FALSE}
+rmarkdown::paged_table(head(train))
+```
+### Survival rates
+
+Lets study the survival rates of different groups in the ship
+
+The difference between males and females is:
+```{r rates, collapse=TRUE}
+cat('The survival rate for males is: ',table(train$Survived, train$Sex)[2,1]/table(train$Survived, train$Sex)[1,1]*100,'%',"\n")
+cat('The survival rate for females is: ',table(train$Survived, train$Sex)[2,2]/table(train$Survived, train$Sex)[1,2]*100,'%')
+```
+There is a clear difference in survival rates for men a women. This is obviously because of the tendency to save children and women first in great disasters or hazards.
+
+
+The survival rates by class are
+```{r rates2, collapse=TRUE}
+cat('The survival rate for Low Class is: ',table(train$Survived, train$Pclass)[2,3]/table(train$Survived, train$Pclass)[1,3]*100,'%',"\n")
+
+cat('The survival rate for Middle Class is: ',table(train$Survived, train$Pclass)[2,2]/table(train$Survived, train$Pclass)[1,2]*100,'%',"\n")
+
+cat('The survival rate for First Class is: ',table(train$Survived, train$Pclass)[2,1]/table(train$Survived, train$Pclass)[1,1]*100,'%')
+```
+It is also very clear how the First class passengers were much more likely to be saved than the Low class passengers.
+
+Survival rate by marital status:
+
+```{r rates3, collapse=TRUE}
+cat('The survival rate for unmarried people is: ',table(train$Survived, train$marital_status)[2,1]/table(train$Survived, train$marital_status)[1,1]*100,'%',"\n")
+cat('The survival rate for married people is: ',table(train$Survived, train$marital_status)[2,2]/table(train$Survived, train$marital_status)[1,2]*100,'%')
+```
+Contrary to our prior belief, people unmarried were more likely to survive. This may be because of the children counting as unmarried.
+
+### By family size
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+t<-ggplot(train %>%
+  group_by(family_size, Survived) %>%
+  summarise(count = n()), aes(x = as.factor(family_size), y = count, fill = factor(Survived))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Survival Counts by Family Size",
+       x = "Family Size",
+       y = "Count",
+       fill = "Survived") +
+  scale_fill_manual(values = c("skyblue", "salmon")) +
+  theme_minimal()
+
+ggplotly(t)
+```
+
+Surprisingly, there is a relation between the size of the family and the survival rate. It is not very heavy but it seems that people that were alone tended to survive less than people with some family in the boat.
+
+### By age
+
+We can see some characteristics of our data depending on the age the passengers had. This is:
+
+```{r cnace_plot, echo=FALSE}
+# Create density plot
+p<-ggplot(train, aes(color = as.factor(Sex), fill = as.factor(Sex))) +
+  geom_density(alpha = 0.6, aes(x = Age)) +
+  labs(x = "Age", y = "Density", color = "Sex") +
+  ggtitle("Density Plot of age by sex") +
+  theme_minimal()
+
+ggplotly(p)
+```
+
+Here we can see how there were more males in the midrange ages than females. Distribution seems pretty normal.
+
+```{r plot2, echo=FALSE}
+# Create density plot
+p2<-ggplot(train, aes(color = as.factor(Pclass), fill = as.factor(Pclass))) +
+  geom_density(alpha = 0.6, aes(x = Age)) +
+  labs(x = "Age", y = "Density", color = "Class") +
+  ggtitle("Density Plot of age by class") +
+  theme_minimal()
+
+ggplotly(p2)
+```
+
+From this plot it seems clear how the majority of the young people in the ship were low class tickets and the older ones tend to be in the higher class tickets.
+
+### By port
+
+```{r plot3, echo=FALSE}
+# Create density plot
+p3<-ggplot(train, aes(color = as.factor(Embarked), fill = as.factor(Embarked))) +
+  geom_density(alpha = 0.6, aes(x = Age)) +
+  labs(x = "Age", y = "Density", color = "Port") +
+  ggtitle("Density Plot of age by Port") +
+  theme_minimal()
+
+ggplotly(p3)
+```
+
+Distribution of age by the port where the people got into the ship doesn't seem informative.
+
+
+## Mahine Learning Models {.tabset}
+
+#### Methodology
+
+We will be using library `caret` for our analysis due to its ease of use and its cross validation capabilities. Our approach will be making a *Leave One Out* cross validation analysis. Leave-One-Out Cross-Validation (LOOCV) is a cross-validation technique where each observation in the dataset is used as the validation set exactly once, with the rest of the data used for training. For each iteration, one observation is removed from the dataset and a model is trained on the remaining data. The removed observation is then used to evaluate the model's performance. This process is repeated for every observation in the dataset, resulting in as many iterations as there are observations. LOOCV is particularly useful for small datasets as it maximizes the use of available data for both training and testing, but it can be computationally expensive for large datasets.
+
+This technique will be used besides an extensive Grid Search for each of the model hyper parameters. 
+
+In order to compare different models we would like to use an accuracy matrix for each of the models and try to get some metrics such as accuracy or sensitivity. Since we **don't have the labels of the test set** Our approeach will be different. Since the data is from a Kaggle competition, Kaggle allows us to uplad our submission to the competition and the site computes the accuracy for us. So, *for each of the models, we will be exporting a .csv with the predictions in the specified format for the competition* and we will compare the models using the information Kaggle gives us. **mportant:** If the specific accuracy want to be consulted or the submissions want to be download for reproducibility issues, they have been left in the file folder. You can upload them to Kaggle yourself.
+
+In addition, in this document we will implement the idea of Economic cost.
+For one of our models we will show hoy to implement the Economic Cost metric for CV tuning. This may not make sense in our data, but it is a highly important skill to have when dealing with some other data sets.
+
+Our Cross Validation set-up is:
+
+```{r cv}
+ctrl <- trainControl(method = 'LOOCV', verboseIter = FALSE)
+```
+### KNN
+
+KNN, or K-Nearest Neighbors, is a simple yet powerful algorithm used for classification and regression tasks. It operates based on the principle that data points with similar features tend to belong to the same class. In classification, KNN assigns a class label to a new data point by a majority vote of its k nearest neighbors. The value of k is a user-defined parameter, determining the number of neighbors considered.
+
+Our `caret` training is:
+
+```{r knn, eval=FALSE}
+# Train Nearest Neighbors model
+nearest_neighbors_model <-
+  train(
+    Survived ~ . - PassengerId,
+    data = train,
+    preProcess = c('center', 'scale'),
+    na.action = na.omit,
+    method = "knn",
+    tuneGrid = expand.grid(k = seq(1, 15, by = 2)) ,
+    trControl = ctrl
+  )
+```
+We can create the predictions .csv the following way:
+
+```{r, eval=FALSE}
+# Create a data frame with PassengerId and predictions
+resultKNN <-
+  data.frame(PassengerId = test$PassengerId,
+             Survived = as.numeric(predict(nearest_neighbors_model, newdata = test)) - 1)
+
+# Write the result dataframe to a CSV file
+write.csv(resultKNN, "predictions_knn.csv", row.names = FALSE)
+
+```
+And Kaggle gives us an **accuracy of** $\mathbf{75.358\%}$
+
+### SVM
+
+SVM, or Support Vector Machine, with a radial basis function (RBF) kernel is a supervised learning algorithm used for classification and regression tasks. In SVM with an RBF kernel, each data point is represented as a point in a high-dimensional space, and the algorithm finds the optimal hyperplane that separates the classes while maximizing the margin between them. 
+
+The sigma parameter, often denoted as \( \gamma \), controls the width of the Gaussian kernel. A smaller \( \gamma \) value implies a wider Gaussian kernel, resulting in smoother decision boundaries and potentially less overfitting. Conversely, a larger \( \gamma \) value results in more complex decision boundaries and may lead to overfitting.
+
+The C parameter in SVM is a regularization parameter that controls the trade-off between maximizing the margin and minimizing the classification error. A smaller C value allows for more misclassifications but may result in a wider margin, while a larger C value aims to minimize misclassifications but may lead to a narrower margin. Adjusting the C parameter helps to balance between bias and variance in the model.
+
+```{r, eval=FALSE}
+# Train SVM model with radial kernel
+svm_model <-
+  train(
+    as.factor(Survived) ~ .,
+    data = train,
+    preProcess = c('center', 'scale'),
+    na.action = na.omit,
+    method = "svmRadial",
+    tuneGrid = expand.grid(
+      sigma = seq(0.1, 1, by = 0.1),
+      C = seq(0.25, 1.25, by = 0.25)
+    ),
+    trControl = ctrl
+  )
+```
+
+We can create the predictions .csv the following way:
+
+```{r, eval=FALSE}
+# Create a data frame with PassengerId and predictions
+resultSVM <-
+  data.frame(PassengerId = test$PassengerId,
+             Survived = as.numeric(predict(svm_model, newdata = test)) - 1)
+# Write the result dataframe to a CSV file
+write.csv(resultSVM, "predictions_svm.csv", row.names = FALSE)
+
+```
+And Kaggle gives us an **accuracy of** $\mathbf{77.272\%}$
+
+### Decision Trees
+
+Decision trees are a popular machine learning algorithm used for both classification and regression tasks. They represent a flowchart-like structure where each internal node represents a feature, each branch represents a decision based on that feature, and each leaf node represents the outcome or prediction. Decision trees recursively split the data into subsets based on the most significant features, aiming to create homogeneous subsets with respect to the target variable.
+
+The cp parameter in decision trees, short for "complexity parameter", is used for pruning the tree to prevent overfitting. Pruning involves removing parts of the tree that do not provide significant improvements in predictive accuracy. The cp parameter controls the cost of adding another split to the tree during the tree-building process. A higher cp value results in simpler trees with fewer splits, while a lower cp value leads to more complex trees with more splits. Adjusting the cp parameter helps to find a balance between model complexity and predictive accuracy, ultimately improving the generalization performance of the decision tree model.
+
+```{r, eval=FALSE}
+# Train Decision Trees model
+decision_trees_model <-
+  train(
+    Survived ~ .,
+    data = train,
+    preProcess = c('center', 'scale'),
+    na.action = na.omit,
+    method = "rpart",
+    tuneGrid = expand.grid(cp = seq(0.01, 0.1, by = 0.01)),
+    trControl = ctrl
+  )
+```
+We can create the predictions .csv the following way:
+
+```{r, eval=FALSE}
+# Create a data frame with PassengerId and predictions
+resultDT <-
+  data.frame(PassengerId = test$PassengerId,
+             Survived = as.numeric(predict(decision_trees_model, newdata = test)) - 1)
+
+# Write the result dataframe to a CSV file
+write.csv(resultDT, "predictionsDT.csv", row.names = FALSE)
+
+```
+And Kaggle gives us an **accuracy of** $\mathbf{77.751\%}$.
+
+### Random Forest
+
+Random Forests is an ensemble learning method based on decision trees. It builds multiple decision trees during training and outputs the class that is the mode of the classes (classification) or mean prediction (regression) of the individual trees. 
+
+The mtry parameter in Random Forests specifies the number of randomly selected features to consider when splitting a node in each decision tree. A larger mtry value leads to a higher diversity among the trees in the forest, potentially capturing more complex patterns in the data. Conversely, a smaller mtry value may reduce the correlation among trees but might result in a simpler model with lower variance. 
+
+Adjusting the mtry parameter is crucial for controlling the balance between bias and variance in the Random Forest model. Typically, the optimal value for mtry is determined through cross-validation or other hyperparameter tuning techniques.
+
+```{r, eval=FALSE}
+# Train Random Forests model
+random_forests_model <-
+  train(
+    as.factor(Survived) ~ .,
+    data = train,
+    preProcess = c('center', 'scale'),
+    na.action = na.omit,
+    method = "rf",
+    trControl = ctrl
+  )
+```
+We can create the predictions .csv the following way:
+
+```{r, eval=FALSE}
+# Create a data frame with PassengerId and predictions
+resultRF <-
+  data.frame(PassengerId = test$PassengerId,
+             Survived = as.numeric(predict(random_forests_model, newdata = test)) - 1)
+# Write the result dataframe to a CSV file
+write.csv(resultRF, "predictionsRF.csv", row.names = FALSE)
+```
+And Kaggle gives us an **accuracy of** $\mathbf{76.555\%}$.
+
+### Neural Networks
+
+Neural Networks, inspired by the structure of the human brain, are a class of machine learning algorithms capable of learning complex patterns from data. They consist of interconnected layers of nodes (neurons) that process input data through a series of transformations, ultimately producing an output. 
+
+In the context of neural networks, the size parameter typically refers to the number of hidden neurons or units in the hidden layers of the network. A larger size value generally allows the neural network to capture more complex relationships in the data, but it also increases the risk of overfitting. 
+
+The decay parameter, often known as weight decay or regularization parameter, is used to control overfitting in neural networks by penalizing large weights. It adds a penalty term to the loss function that discourages large weight values, helping to prevent the model from fitting noise in the training data.
+
+Neural networks have gained immense popularity in recent years due to their ability to learn intricate patterns from large and complex datasets. They have become the state-of-the-art approach for a wide range of problems, including image and speech recognition, natural language processing, and reinforcement learning, among others. Their flexibility, scalability, and superior performance on various tasks make them a go-to choice for many modern machine learning applications.
+
+```{r, eval=FALSE}
+# Train Neural Networks model
+neural_networks_model <-
+  train(
+    as.factor(Survived) ~ .,
+    data = train,
+    preProcess = c('center', 'scale'),
+    na.action = na.omit,
+    method = "nnet",
+    tuneGrid = expand.grid(size = c(2, 4, 6), decay = c(0.01, 0.001)),
+    trControl = ctrl,
+    maximize = F
+  )
+```
+We can create the predictions .csv the following way:
+
+```{r, eval=FALSE}
+# Create a data frame with PassengerId and predictions
+resultNN <-
+  data.frame(PassengerId = test$PassengerId,
+             Survived = as.numeric(predict(neural_networks_model, newdata = test)) - 1)
+
+# Write the result dataframe to a CSV file
+write.csv(resultNN, "predictionsNN.csv", row.names = FALSE)
+
+```
+And Kaggle gives us an **accuracy of** $\mathbf{77.033\%}$.
+
+## Results
+
+Our best model in terms of accuracy is *Decision Tree Model* with an achieved accuracy of $\mathbf{77.751\%}$. 
+
+However the differences were very slight between the models. This is because of the extensive CV processes we have performed we have been able to fine tune all of the models.
+
+
+```{r results}
+# Plot with gradient color
+r<- ggplot(data.frame(res=c(75.358,77.272,77.751,76.555,77.033), models=c('KNN','SVM','DT', 'RF', 'NN')), aes(x = models, y = res, fill = res)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "skyblue", high = "steelblue") +
+  labs(title = "Bar Plot of Results by Model",
+       x = "Models",
+       y = "Results")
+
+ggplotly(r)
+```
+
+
+## Cost-sensitive learning
+Cost-sensitive learning is a machine learning approach that takes into account the varying costs associated with different types of errors or misclassifications in a classification problem. 
+
+In traditional classification algorithms, all misclassifications are considered equal, regardless of their impact or consequence. However, in many real-world scenarios, misclassifying certain classes may have more significant consequences or costs than others. For example, in medical diagnosis, misclassifying a severe illness as benign may have more severe consequences than misclassifying a benign condition as severe.
+
+Cost-sensitive learning aims to address this by assigning different costs to different types of errors, allowing the model to prioritize minimizing the total cost of misclassifications rather than just minimizing the error rate. This can be achieved by adjusting the class priors, misclassification penalties, or incorporating cost matrices into the learning algorithms.
+
+By incorporating cost considerations into the learning process, cost-sensitive learning can lead to more accurate and relevant models for applications where misclassifications have varying consequences. It is particularly useful in domains where the costs of false positives and false negatives are uneven or asymmetrical.
+
+Lets asume in our case that we dont want to underestimate the decesases. This is, to make it much more difficult to classify a dead as live than the other way around. Lets say it is, for example, twice as important. The cost will be:
+
+| Prediction/Reference | dead | live  |
+| -------------------- | -----:| ---------:|
+| predicted dead               |   0 |  2  |
+| predicted live            |   1 |     0  |
+
+Unit cost is then:
+
+$$0*TN + FP + 2*FN + 0*TP$$
+
+```{r}
+# Type the unit cost here:
+cost.unit <- c(0, 1, 2, 0)
+```
+
+We can implement a metric with this unit cost in order to caret to use it when cross validating. The metric is:
+
+```{r}
+EconomicCost <- function(data, lev = NULL, model = NULL) 
+{
+  y.pred = data$pred 
+  y.true = data$obs
+  CM = confusionMatrix(y.pred, y.true)$table
+  out = sum(as.vector(CM)*cost.unit)/sum(CM)
+  names(out) <- c("EconomicCost")
+  out
+}
+```
+We can take this metric into the `caret` `Traincontrol()`function:
+```{r cv2}
+ctrl2 <- trainControl(
+  method = 'LOOCV',
+  verboseIter = TRUE,
+  classProbs = TRUE,
+  summaryFunction = EconomicCost
+)
+```
+
+And use it to make a model
+
+```{r, eval=FALSE}
+# Train Nearest Neighbors model
+nearest_neighbors_model_economic <-
+  train(
+    Survived ~ . - PassengerId,
+    data = train,
+    preProcess = c('center', 'scale'),
+    na.action = na.omit,
+    method = "knn",
+    tuneGrid = expand.grid(k = seq(1, 15, by = 2)) ,
+    trControl = ctrl2
+  )
+```
+
+```{r, eval=FALSE}
+# Create a data frame with PassengerId and predictions
+resultKNN2 <-
+  data.frame(PassengerId = test$PassengerId,
+             Survived = as.numeric(predict(nearest_neighbors_model_economic, newdata = test)) - 1)
+
+# Write the result dataframe to a CSV file
+write.csv(resultKNN, "predictions_knn2.csv", row.names = FALSE)
+
+```
+With this we were able to get and accuracy of $75.358\%$. This is a trade-off between type-I and type-II errors.
